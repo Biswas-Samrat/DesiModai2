@@ -1,78 +1,70 @@
-import { useAsync, useState } from "@devvit/public-api";
-import type { Context } from "@devvit/public-api";
-import { getStatsForDays } from "../storage/analyticsStore.js";
+import { Devvit, useAsync } from "@devvit/public-api";
 
-async function isModerator(context: Context): Promise<boolean> {
-  const currentUser = await context.reddit.getCurrentUsername();
-  const subreddit = await context.reddit.getCurrentSubreddit();
-  const mods = await context.reddit.getModerators({ subredditName: subreddit.name });
-  return mods.some((mod) => mod.username === currentUser);
-}
+export const ModDashboard: Devvit.CustomPostComponent = (context) => {
+  const { data, loading, error } = useAsync(async () => {
+    try {
+      const toxic = await context.redis.get("stats:removals:toxic") || "0";
+      const scam = await context.redis.get("stats:removals:scam") || "0";
+      const warnings = await context.redis.get("stats:warnings") || "0";
+      const threeStrikes = await context.redis.hKeys("users:three_strikes") || [];
 
-export const ModDashboard = (_props: Record<string, never>, context: Context): JSX.Element => {
-  const [days, setDays] = useState(7);
-
-  const { data: modAccess, loading: modLoading } = useAsync(async () => isModerator(context));
-  const { data: stats, loading: statsLoading } = useAsync(async () => getStatsForDays(days), {
-    depends: [days]
+      return {
+        toxic,
+        scam,
+        warnings,
+        threeStrikes: threeStrikes.length,
+        userList: threeStrikes
+      };
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+      throw err;
+    }
   });
 
-  if (modLoading || statsLoading) {
-    return (
-      <vstack padding="medium">
-        <text>Loading moderation dashboard...</text>
-      </vstack>
-    );
-  }
-
-  if (!modAccess) {
-    return (
-      <vstack padding="medium">
-        <text>Moderator access required.</text>
-      </vstack>
-    );
-  }
-
-  if (days < 1 || days > 7) {
-    return (
-      <vstack padding="medium">
-        <text>Invalid date range. Choose between 1 and 7 days.</text>
-      </vstack>
-    );
-  }
-
-  if (!stats || stats.toxicRemovals + stats.scamRemovals + stats.warnings + stats.escalations === 0) {
-    return (
-      <vstack padding="medium" gap="small">
-        <text size="xlarge" weight="bold">
-          AI Moderation Dashboard
-        </text>
-        <text>No moderation activity in selected range.</text>
-        <hstack gap="small">
-          <button onPress={() => setDays(1)}>1 day</button>
-          <button onPress={() => setDays(3)}>3 days</button>
-          <button onPress={() => setDays(7)}>7 days</button>
-        </hstack>
-      </vstack>
-    );
-  }
+  if (loading) return <vstack padding="large"><text>Loading Analytics...</text></vstack>;
+  if (error) return <vstack padding="large"><text color="red">Error loading dashboard</text></vstack>;
 
   return (
-    <vstack padding="medium" gap="small">
-      <text size="xlarge" weight="bold">
-        AI Moderation Dashboard
-      </text>
-      <text>Date range: last {days} day(s)</text>
-      <hstack gap="small">
-        <button onPress={() => setDays(1)}>1 day</button>
-        <button onPress={() => setDays(3)}>3 days</button>
-        <button onPress={() => setDays(7)}>7 days</button>
+    <vstack padding="large" gap="medium">
+      <text size="xlarge" weight="bold">DesiMod AI Dashboard</text>
+      
+      <hstack gap="medium">
+        <vstack border="thin" padding="medium" grow>
+          <text size="large" weight="bold">{data?.toxic}</text>
+          <text size="small">Toxic Removals</text>
+        </vstack>
+        <vstack border="thin" padding="medium" grow>
+          <text size="large" weight="bold">{data?.scam}</text>
+          <text size="small">Scam Removals</text>
+        </vstack>
       </hstack>
-      <text>Total toxic removals: {stats?.toxicRemovals ?? 0}</text>
-      <text>Total scam removals: {stats?.scamRemovals ?? 0}</text>
-      <text>Total warnings: {stats?.warnings ?? 0}</text>
-      <text>Users escalated to ModMail: {stats?.escalations ?? 0}</text>
-      <text>Estimated moderator time saved: {stats?.estimatedTimeSavedMinutes ?? 0} minutes</text>
+
+      <hstack gap="medium">
+        <vstack border="thin" padding="medium" grow>
+          <text size="large" weight="bold">{data?.warnings}</text>
+          <text size="small">Total Warnings</text>
+        </vstack>
+        <vstack border="thin" padding="medium" grow>
+          <text size="large" weight="bold">{data?.threeStrikes}</text>
+          <text size="small">Users with 3+ Strikes</text>
+        </vstack>
+      </hstack>
+
+      {data?.userList && data.userList.length > 0 ? (
+        <vstack gap="small" border="thin" padding="medium">
+          <text weight="bold">Escalated Users:</text>
+          {data.userList.slice(0, 5).map(user => (
+            <text size="small">• u/{user}</text>
+          ))}
+        </vstack>
+      ) : null}
+
+      <button
+        onPress={() => context.ui.showToast("Stats refreshed!")}
+        appearance="primary"
+      >
+        Refresh Data
+      </button>
     </vstack>
   );
 };

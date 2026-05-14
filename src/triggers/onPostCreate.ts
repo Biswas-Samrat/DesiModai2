@@ -1,35 +1,20 @@
-import type { TriggerContext } from "@devvit/public-api";
+import { TriggerContext } from "@devvit/public-api";
 import { processModeration } from "../moderation/moderationService.js";
-import type { ContentPayload } from "../moderation/types.js";
 
-interface PostCreateEvent {
-  post?: {
-    id: string;
-    title: string;
-    selftext?: string;
-    authorName: string;
-    subredditName: string;
-    permalink: string;
-  };
-}
+export async function handlePostCreate(event: any, context: TriggerContext) {
+  try {
+    const post = event.post;
+    if (!post?.title || !post?.authorName) return;
 
-export async function handlePostCreate(
-  event: PostCreateEvent,
-  context: TriggerContext
-): Promise<void> {
-  if (!event.post?.authorName) return;
+    const body = `${post.title}\n${post.selftext ?? ""}`.trim();
 
-  const body = [event.post.title, event.post.selftext ?? ""].join("\n").trim();
-  if (!body) return;
-
-  const payload: ContentPayload = {
-    id: event.post.id,
-    author: event.post.authorName,
-    subreddit: event.post.subredditName,
-    body,
-    permalink: event.post.permalink,
-    kind: "post"
-  };
-
-  await processModeration(context, payload);
+    await processModeration(context, {
+      id: post.id,
+      author: post.authorName,
+      body: body,
+      kind: 'post'
+    });
+  } catch (err) {
+    console.error("Post trigger error:", err);
+  }
 }

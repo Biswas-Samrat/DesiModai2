@@ -13,9 +13,9 @@ export async function applyRemovalWithStrike(
   violation: ViolationResult
 ): Promise<void> {
   if (payload.kind === "comment") {
-    await context.reddit.removeComment(payload.id, false);
+    await context.reddit.remove(payload.id, false);
   } else {
-    await context.reddit.removePost(payload.id, false);
+    await context.reddit.remove(payload.id, false);
   }
 
   await logRemoval(violation.type);
@@ -26,10 +26,10 @@ export async function applyRemovalWithStrike(
   )} reason=${violation.reason} strike=${strikeCount}`;
 
   try {
-    await context.reddit.addUserNote({
-      subredditName: payload.subreddit,
-      username: payload.author,
-      note: modNote
+    await context.reddit.addModNote({
+      subreddit: payload.subreddit,
+      user: payload.author,
+      note: modNote,
     });
   } catch (error) {
     logger.warn({ error, username: payload.author }, "Failed to add mod note");
@@ -39,7 +39,7 @@ export async function applyRemovalWithStrike(
     await context.reddit.sendPrivateMessage({
       to: payload.author,
       subject: "Moderator warning",
-      text: WARNING_MESSAGE
+      text: WARNING_MESSAGE,
     });
     await logWarning();
     return;
@@ -50,7 +50,7 @@ export async function applyRemovalWithStrike(
     subject: `[AI escalation] 3rd strike: u/${payload.author}`,
     body: `User reached 3 strikes.\n\nViolation: ${violation.type}\nReason: ${violation.reason}\nConfidence: ${violation.confidence.toFixed(
       2
-    )}\nEvidence: https://reddit.com${payload.permalink}`
+    )}\nEvidence: https://reddit.com${payload.permalink}`,
   });
 
   await logEscalation(`https://reddit.com${payload.permalink}`, payload.author);
@@ -64,9 +64,12 @@ export async function applyReportOnly(
   const reason = `[AI review] ${violation.type} confidence=${violation.confidence.toFixed(2)} ${
     violation.reason
   }`;
+
   if (payload.kind === "comment") {
-    await context.reddit.reportComment(payload.id, reason);
+    const comment = await context.reddit.getCommentById(payload.id);
+    await context.reddit.report(comment, { reason });
   } else {
-    await context.reddit.reportPost(payload.id, reason);
+    const post = await context.reddit.getPostById(payload.id);
+    await context.reddit.report(post, { reason });
   }
 }

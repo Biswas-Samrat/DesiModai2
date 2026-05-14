@@ -1,13 +1,13 @@
 import { getRedis } from "./redisClient.js";
 import type { ViolationType } from "../moderation/types.js";
 
-export interface DashboardStats {
+export type DashboardStats = {
   toxicRemovals: number;
   scamRemovals: number;
   warnings: number;
   escalations: number;
   estimatedTimeSavedMinutes: number;
-}
+};
 
 function dayKey(dayIso: string, metric: string): string {
   return `stats:${dayIso}:${metric}`;

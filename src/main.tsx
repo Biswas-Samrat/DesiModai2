@@ -1,43 +1,64 @@
 import { Devvit } from "@devvit/public-api";
-import { ModDashboard } from "./dashboard/modDashboard.js";
 import { handleCommentCreate } from "./triggers/onCommentCreate.js";
 import { handlePostCreate } from "./triggers/onPostCreate.js";
+import { ModDashboard } from "./dashboard/modDashboard.js";
 
 Devvit.configure({
-  redditAPI: true
+  redditAPI: true,
+  redis: true,
 });
 
+// Settings for API Key
+Devvit.addSettings([
+  {
+    type: "string",
+    name: "gemini_api_key",
+    label: "Gemini API Key",
+    isSecret: true,
+    scope: "app",
+  },
+]);
+
+// Trigger: Comment Submission
 Devvit.addTrigger({
-  event: "CommentCreate",
-  onEvent: async (event, context) => {
-    await handleCommentCreate(event as never, context);
-  }
+  event: "CommentSubmit",
+  onEvent: handleCommentCreate,
 });
 
+// Trigger: Post Submission
 Devvit.addTrigger({
-  event: "PostCreate",
-  onEvent: async (event, context) => {
-    await handlePostCreate(event as never, context);
-  }
+  event: "PostSubmit",
+  onEvent: handlePostCreate,
 });
 
+// Custom Post Type for Dashboard
 Devvit.addCustomPostType({
-  name: "AI Mod Dashboard",
-  render: ModDashboard
+  name: "DesiMod Dashboard",
+  render: ModDashboard,
 });
 
+// Menu Item to create Dashboard
 Devvit.addMenuItem({
-  label: "Open AI Moderation Dashboard",
+  label: "Create DesiMod Dashboard",
   location: "subreddit",
   onPress: async (_event, context) => {
-    const subreddit = await context.reddit.getCurrentSubreddit();
-    await context.reddit.submitPost({
-      title: "AI Moderation Dashboard",
-      subredditName: subreddit.name,
-      preview: <vstack><text>Open to view moderation analytics</text></vstack>,
-      customPost: "AI Mod Dashboard"
-    });
-  }
+    try {
+      const subreddit = await context.reddit.getCurrentSubreddit();
+      await context.reddit.submitPost({
+        title: "DesiMod AI Moderation Dashboard",
+        subredditName: subreddit.name,
+        preview: (
+          <vstack padding="large">
+            <text size="large">Loading DesiMod Dashboard...</text>
+          </vstack>
+        ),
+      });
+      context.ui.showToast("Dashboard post created!");
+    } catch (err) {
+      console.error("Menu item error:", err);
+      context.ui.showToast("Failed to create dashboard");
+    }
+  },
 });
 
 export default Devvit;

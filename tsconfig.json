@@ -1,3 +1,4 @@
+
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -11,8 +12,7 @@
     "types": ["node", "vitest/globals"],
     "outDir": "dist",
     "rootDir": "src",
-    "jsx": "react-jsx",
-    "jsxImportSource": "@devvit/public-api"
+    "jsx": "preserve"
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["dist", "node_modules"]
