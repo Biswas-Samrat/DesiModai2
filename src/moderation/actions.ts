@@ -1,75 +1,122 @@
+/**
+ * actions.ts — enforces the 3-strike policy after AI flags content.
+ *
+ * Strike 1 & 2: remove content + DM warning + add ModNote
+ * Strike 3:     remove content + send ModMail to subreddit mods with evidence
+ *               (NO auto-ban — violates Reddit policy)
+ */
 import type { TriggerContext } from "@devvit/public-api";
-import type { ContentPayload, ViolationResult } from "./types.js";
-import { incrementStrike } from "../storage/strikeStore.js";
+import type { ContentPayload, ViolationType } from "./types.js";
+import { incrementStrikes, getStrikes } from "../storage/strikeStore.js";
 import { logEscalation, logRemoval, logWarning } from "../storage/analyticsStore.js";
 import { logger } from "../utils/logger.js";
 
-const WARNING_MESSAGE =
-  "Your recent content appears to violate subreddit safety rules (toxicity/scam policy). Please avoid abusive language, hate speech, and scam promotion. Repeated violations may be escalated to subreddit moderators.";
+const SUBREDDIT = "DesiModTest_Samrat";
 
+function dmWarningText(strikeNum: number): string {
+  return `Warning ${strikeNum}/3: Violation detected. Please follow r/${SUBREDDIT} rules.`;
+}
+
+function modMailBody(
+  username: string,
+  violation: { type: ViolationType; reason: string; confidence: number },
+  permalink: string,
+  strikes: number
+): string {
+  return (
+    `User u/${username} has reached ${strikes} strikes.\n\n` +
+    `**Violation type:** ${violation.type}\n` +
+    `**Reason:** ${violation.reason}\n` +
+    `**Confidence:** ${(violation.confidence * 100).toFixed(0)}%\n` +
+    `**Evidence:** https://reddit.com${permalink}\n\n` +
+    `⚠️ Please review manually. Do NOT auto-ban without human review.`
+  );
+}
+
+/**
+ * Removes content, increments the user's strike counter, sends a DM warning
+ * (strikes 1–2) or ModMail to mods (strike 3+).
+ */
 export async function applyRemovalWithStrike(
   context: TriggerContext,
   payload: ContentPayload,
-  violation: ViolationResult
+  violation: { type: ViolationType; reason: string; confidence: number; severity: string }
 ): Promise<void> {
-  if (payload.kind === "comment") {
-    await context.reddit.remove(payload.id, false);
-  } else {
-    await context.reddit.remove(payload.id, false);
-  }
+  // 1. Remove the content
+  await context.reddit.remove(payload.id, false);
+  await logRemoval(context.redis, violation.type);
 
-  await logRemoval(violation.type);
+  // 2. Increment strike counter
+  const strikeCount = await incrementStrikes(context.redis, payload.author);
 
-  const strikeCount = await incrementStrike(payload.author);
-  const modNote = `[AI-Mod] ${violation.type} (${violation.severity}) confidence=${violation.confidence.toFixed(
-    2
-  )} reason=${violation.reason} strike=${strikeCount}`;
+  // 3. Add a ModNote for the mod team
+  const modNote =
+    `[DesiMod AI] ${violation.type} | severity=${violation.severity} ` +
+    `| confidence=${(violation.confidence * 100).toFixed(0)}% ` +
+    `| reason="${violation.reason}" | strike=${strikeCount}`;
 
   try {
     await context.reddit.addModNote({
       subreddit: payload.subreddit,
       user: payload.author,
       note: modNote,
+      redditId: payload.id as `t1_${string}` | `t3_${string}`,
     });
-  } catch (error) {
-    logger.warn({ error, username: payload.author }, "Failed to add mod note");
+  } catch (err) {
+    logger.warn({ err, username: payload.author }, "addModNote failed (non-fatal)");
   }
 
+  // 4. Strike 1 or 2 → DM user
   if (strikeCount <= 2) {
-    await context.reddit.sendPrivateMessage({
-      to: payload.author,
-      subject: "Moderator warning",
-      text: WARNING_MESSAGE,
-    });
-    await logWarning();
+    try {
+      await context.reddit.sendPrivateMessage({
+        to: payload.author,
+        subject: `Moderator Warning — Strike ${strikeCount}/3`,
+        text: dmWarningText(strikeCount),
+      });
+      await logWarning(context.redis);
+    } catch (err) {
+      logger.warn({ err, username: payload.author }, "sendPrivateMessage failed (non-fatal)");
+    }
     return;
   }
 
-  await context.reddit.modMail.createConversation({
-    subredditName: payload.subreddit,
-    subject: `[AI escalation] 3rd strike: u/${payload.author}`,
-    body: `User reached 3 strikes.\n\nViolation: ${violation.type}\nReason: ${violation.reason}\nConfidence: ${violation.confidence.toFixed(
-      2
-    )}\nEvidence: https://reddit.com${payload.permalink}`,
-  });
-
-  await logEscalation(`https://reddit.com${payload.permalink}`, payload.author);
+  // 5. Strike 3+ → ModMail to subreddit mods (NO ban)
+  try {
+    await context.reddit.sendPrivateMessage({
+      to: `/r/${payload.subreddit}`,
+      subject: `3-Strike Report: u/${payload.author}`,
+      text: modMailBody(payload.author, violation, payload.permalink, strikeCount),
+    });
+    await logEscalation(
+      context.redis,
+      `https://reddit.com${payload.permalink}`,
+      payload.author
+    );
+  } catch (err) {
+    logger.warn({ err, username: payload.author }, "ModMail send failed (non-fatal)");
+  }
 }
 
+/**
+ * Reports content to Reddit's queue without removing it (low-confidence path).
+ */
 export async function applyReportOnly(
   context: TriggerContext,
   payload: ContentPayload,
-  violation: ViolationResult
+  violation: { type: ViolationType; reason: string; confidence: number }
 ): Promise<void> {
-  const reason = `[AI review] ${violation.type} confidence=${violation.confidence.toFixed(2)} ${
-    violation.reason
-  }`;
+  const reason = `[DesiMod AI] ${violation.type} confidence=${(violation.confidence * 100).toFixed(0)}% — ${violation.reason}`;
 
-  if (payload.kind === "comment") {
-    const comment = await context.reddit.getCommentById(payload.id);
-    await context.reddit.report(comment, { reason });
-  } else {
-    const post = await context.reddit.getPostById(payload.id);
-    await context.reddit.report(post, { reason });
+  try {
+    if (payload.kind === "comment") {
+      const comment = await context.reddit.getCommentById(payload.id);
+      await context.reddit.report(comment, { reason });
+    } else {
+      const post = await context.reddit.getPostById(payload.id);
+      await context.reddit.report(post, { reason });
+    }
+  } catch (err) {
+    logger.warn({ err }, "report action failed (non-fatal)");
   }
 }

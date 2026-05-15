@@ -2,24 +2,21 @@
   "name": "desimodtest99",
   "version": "0.0.0",
   "private": true,
-  "description": "AI-powered multilingual moderation for Indian and Bangladeshi subreddits using Devvit + Gemini + Redis.",
+  "description": "AI-powered multilingual moderation for Indian and Bangladeshi subreddits using Devvit + Gemini.",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "devvit playtest",
+    "dev": "devvit playtest r/DesiModTest_Samrat",
+    "upload": "devvit upload",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@devvit/public-api": "0.12.22",
-    "@google/generative-ai": "^0.24.1",
-    "bottleneck": "^2.19.5",
-    "ioredis": "^5.4.1",
-    "pino": "^9.3.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {

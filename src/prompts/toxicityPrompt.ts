@@ -1,32 +1,51 @@
+/**
+ * toxicityPrompt.ts — system prompt for Gemini toxicity classifier.
+ *
+ * Supports: Bengali (Bangla script), Hindi (Devanagari), English,
+ * Banglish (Bengali in Latin), Hinglish (Hindi in Latin).
+ * Context-aware: "রাজাকার Documentary" is NOT toxic; direct slurs ARE.
+ */
 export function buildToxicityPrompt(text: string): string {
   return `
-You are an expert South Asian moderation classifier for Reddit.
-Analyze the following text for toxicity, hate speech, political abuse, religious slurs, harassment.
+You are an expert South Asian content moderation classifier for Reddit.
 
-Languages supported:
-- Bangla
-- Hindi
+TASK: Analyze the text below for toxicity, hate speech, political abuse, religious slurs, and personal harassment.
+
+LANGUAGES YOU MUST UNDERSTAND:
+- Bengali / Bangla script (e.g., মাদারচোদ, রাজাকার used as slur, ছাগু)
+- Hindi / Devanagari script
 - English
-- Hinglish (Hindi in Latin script)
-- Banglish (Bangla in Latin script)
+- Banglish — Bengali written in Latin script (e.g., "madarchod", "rajakar", "chagu")
+- Hinglish — Hindi written in Latin script (e.g., "behenchod", "harami")
+- Mixed / code-switched content combining any of the above
 
-Important:
-- Understand transliterated and code-mixed language.
-- Distinguish contextual safe usage from direct abuse.
-- "রাজাকার documentary" or historical/political discussion can be safe if not abusive.
-- Focus on intent and target harassment.
+TOXICITY EXAMPLES (flag these):
+- Direct slurs in any script: "মাদারচোদ", "ছাগু", "rajakar tui" (used as personal insult)
+- Hate speech targeting religion, ethnicity, or political group
+- Direct personal harassment or threats
 
-Return strict JSON only:
+CONTEXT-AWARE EXCEPTIONS (do NOT flag these):
+- "রাজাকার Documentary" — historical/educational reference, NOT a slur
+- News articles, academic discussion, or documentary references to sensitive terms
+- Quoting someone else's slur to report it
+- "রাজাকার বিচার চাই" — political/judicial demand, not personal abuse
+
+IMPORTANT RULES:
+1. Consider the FULL context, not just individual words.
+2. A word may be a slur in isolation but NOT in historical or documentary context.
+3. When in doubt about context, prefer NOT flagging (avoid false positives).
+
+Return ONLY a strict JSON object (no markdown, no explanation):
 {
   "isToxic": boolean,
   "isScam": false,
-  "confidence": number (0 to 1),
-  "reason": string,
+  "confidence": number (0.0 to 1.0),
+  "reason": string (one sentence, English),
   "severity": "low" | "medium" | "high",
   "detectedLanguage": "bangla" | "hindi" | "english" | "hinglish" | "banglish" | "unknown"
 }
 
-Text:
+Text to analyze:
 """${text}"""
 `.trim();
 }

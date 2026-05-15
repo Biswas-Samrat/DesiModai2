@@ -3,60 +3,68 @@ import { handleCommentCreate } from "./triggers/onCommentCreate.js";
 import { handlePostCreate } from "./triggers/onPostCreate.js";
 import { ModDashboard } from "./dashboard/modDashboard.js";
 
+// Declare all capabilities the app needs
 Devvit.configure({
   redditAPI: true,
   redis: true,
+  http: true, // Required for Gemini API calls
 });
 
-// Settings for API Key
+// Settings: Gemini API key stored securely in Devvit (NOT process.env)
 Devvit.addSettings([
   {
     type: "string",
     name: "gemini_api_key",
     label: "Gemini API Key",
+    helpText: "Your Google AI Studio API key for Gemini 1.5 Flash. Keep this secret.",
     isSecret: true,
     scope: "app",
   },
 ]);
 
-// Trigger: Comment Submission
+// Trigger: Scan every new comment
 Devvit.addTrigger({
   event: "CommentSubmit",
   onEvent: handleCommentCreate,
 });
 
-// Trigger: Post Submission
+// Trigger: Scan every new post
 Devvit.addTrigger({
   event: "PostSubmit",
   onEvent: handlePostCreate,
 });
 
-// Custom Post Type for Dashboard
+// Custom Post Type: Mod Analytics Dashboard
 Devvit.addCustomPostType({
   name: "DesiMod Dashboard",
+  description: "AI moderation analytics for r/DesiModTest_Samrat",
   render: ModDashboard,
 });
 
-// Menu Item to create Dashboard
+// Subreddit menu item: create a dashboard post
 Devvit.addMenuItem({
   label: "Create DesiMod Dashboard",
   location: "subreddit",
+  forUserType: "moderator",
   onPress: async (_event, context) => {
     try {
       const subreddit = await context.reddit.getCurrentSubreddit();
       await context.reddit.submitPost({
-        title: "DesiMod AI Moderation Dashboard",
+        title: "DesiMod AI — Moderation Dashboard",
         subredditName: subreddit.name,
         preview: (
-          <vstack padding="large">
-            <text size="large">Loading DesiMod Dashboard...</text>
+          <vstack padding="large" alignment="center middle">
+            <text size="large" weight="bold">
+              DesiMod AI Dashboard
+            </text>
+            <text size="small">Loading stats...</text>
           </vstack>
         ),
       });
-      context.ui.showToast("Dashboard post created!");
+      context.ui.showToast("✅ Dashboard post created!");
     } catch (err) {
       console.error("Menu item error:", err);
-      context.ui.showToast("Failed to create dashboard");
+      context.ui.showToast("❌ Failed to create dashboard. Check mod permissions.");
     }
   },
 });

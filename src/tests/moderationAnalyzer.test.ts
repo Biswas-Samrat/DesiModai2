@@ -24,7 +24,8 @@ describe("moderationAnalyzer", () => {
         detectedLanguage: "banglish"
       });
 
-    const results = await analyzeContent("test");
+    // analyzeContent now requires (text, apiKey)
+    const results = await analyzeContent("test", "fake-api-key");
     expect(results).toHaveLength(2);
     expect(results[0].type).toBe("toxicity");
     expect(results[1].type).toBe("scam");

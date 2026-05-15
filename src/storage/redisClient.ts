@@ -1,25 +1,12 @@
-import { Redis } from "ioredis";
-import { getEnv } from "../utils/env.js";
-import { logger } from "../utils/logger.js";
+/**
+ * redisClient.ts — re-exports the Devvit Redis type for use across storage modules.
+ *
+ * There is NO external Redis (ioredis / Upstash). Devvit provides Redis through
+ * context.redis in every trigger/menu-item handler.
+ *
+ * All storage functions accept `redis: RedisClient` as their first parameter,
+ * which callers supply as `context.redis`.
+ */
+import type { RedisClient } from "@devvit/public-api";
 
-let redis: Redis | null = null;
-
-export function getRedis(): Redis {
-  if (redis) return redis;
-
-  const redisUrl = getEnv().REDIS_URL;
-  if (!redisUrl) {
-    throw new Error("REDIS_URL environment variable is not set");
-  }
-
-  redis = new Redis(redisUrl, {
-    maxRetriesPerRequest: 2,
-    enableOfflineQueue: false,
-  });
-
-  redis.on("error", (error: Error) => {
-    logger.error({ error }, "Redis error");
-  });
-
-  return redis;
-}
+export type { RedisClient };
