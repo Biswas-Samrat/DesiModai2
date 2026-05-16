@@ -9,7 +9,7 @@ import {
 } from "./schemas.js";
 
 // Updated Gemini model
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
 
 // Correct API base
 const GEMINI_BASE_URL =
@@ -49,13 +49,20 @@ export async function askGemini(
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: 512,
+      responseMimeType: "application/json",
     },
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+    ],
   };
 
   const start = Date.now();
 
   try {
-    logger.info("Sending request to Gemini...");
+    logger.info("Sending unified Gemini moderation request");
 
     const response = await fetch(url, {
       method: "POST",
@@ -67,6 +74,17 @@ export async function askGemini(
 
     if (!response.ok) {
       const errorText = await response.text();
+
+      if (response.status === 429) {
+        logger.warn("Gemini quota exceeded");
+        return {
+          safe: true,
+          isToxic: false,
+          isScam: false,
+          confidence: 0,
+          reason: "Gemini quota exceeded",
+        };
+      }
 
       logger.error(
         {
@@ -104,7 +122,7 @@ export async function askGemini(
         confidence: parsed.confidence,
         reason: parsed.reason,
       },
-      "Gemini moderation response"
+      "Unified moderation response received"
     );
 
     return parsed;

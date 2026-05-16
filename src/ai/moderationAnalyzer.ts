@@ -1,39 +1,31 @@
 /**
- * moderationAnalyzer.ts — runs both toxicity and scam classifiers against content.
- *
- * apiKey is passed from the trigger handler via context.settings.get("gemini_api_key").
+ * moderationAnalyzer.ts — runs single unified classifier against content.
  */
 import { askGemini } from "./geminiClient.js";
-import { buildScamPrompt } from "../prompts/scamPrompt.js";
-import { buildToxicityPrompt } from "../prompts/toxicityPrompt.js";
+import { buildCombinedPrompt } from "../prompts/combinedModerationPrompt.js";
 import type { ViolationResult } from "../moderation/types.js";
 
 export async function analyzeContent(
   text: string,
   apiKey: string
 ): Promise<ViolationResult[]> {
-  const [toxicity, scam] = await Promise.all([
-    askGemini(buildToxicityPrompt(text), apiKey),
-    askGemini(buildScamPrompt(text), apiKey),
-  ]);
+  const result = await askGemini(buildCombinedPrompt(text), apiKey);
 
   const results: ViolationResult[] = [];
 
-  if (toxicity.isToxic) {
+  if (result.isToxic) {
     results.push({
       type: "toxicity",
-      confidence: toxicity.confidence,
-      reason: toxicity.reason,
-      severity: toxicity.severity,
+      confidence: result.confidence,
+      reason: result.reason,
     });
   }
 
-  if (scam.isScam) {
+  if (result.isScam) {
     results.push({
       type: "scam",
-      confidence: scam.confidence,
-      reason: scam.reason,
-      severity: scam.severity,
+      confidence: result.confidence,
+      reason: result.reason,
     });
   }
 

@@ -35,7 +35,7 @@ export async function processModeration(
     return;
   }
 
-  // 3. Run AI classifiers (toxicity + scam)
+  // 3. Run unified AI classifier (toxicity + scam)
   let violations;
   try {
     violations = await analyzeContent(body, apiKey);

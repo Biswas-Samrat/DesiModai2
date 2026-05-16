@@ -2,7 +2,6 @@ export type SupportedLanguage = "bangla" | "hindi" | "english" | "hinglish" | "b
 
 export type ContentKind = "post" | "comment";
 export type ViolationType = "toxicity" | "scam";
-export type Severity = "low" | "medium" | "high";
 
 export type ModerationDecision = "ignore" | "report" | "remove";
 
@@ -19,5 +18,4 @@ export interface ViolationResult {
   type: ViolationType;
   confidence: number;
   reason: string;
-  severity: Severity;
 }

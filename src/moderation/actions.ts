@@ -40,7 +40,7 @@ function modMailBody(
 export async function applyRemovalWithStrike(
   context: TriggerContext,
   payload: ContentPayload,
-  violation: { type: ViolationType; reason: string; confidence: number; severity: string }
+  violation: { type: ViolationType; reason: string; confidence: number }
 ): Promise<void> {
   // 1. Remove the content
   await context.reddit.remove(payload.id, false);
@@ -51,7 +51,7 @@ export async function applyRemovalWithStrike(
 
   // 3. Add a ModNote for the mod team
   const modNote =
-    `[DesiMod AI] ${violation.type} | severity=${violation.severity} ` +
+    `[DesiMod AI] ${violation.type} ` +
     `| confidence=${(violation.confidence * 100).toFixed(0)}% ` +
     `| reason="${violation.reason}" | strike=${strikeCount}`;
 
