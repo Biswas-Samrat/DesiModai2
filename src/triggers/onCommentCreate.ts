@@ -17,17 +17,18 @@ export async function handleCommentCreate(
 ): Promise<void> {
   try {
     const comment = event.comment;
-    if (!comment?.body || !comment?.author) return;
+    const authorName = event.author?.name;
+    if (!comment?.body || !authorName) return;
 
     // Skip AutoModerator and deleted content
-    if (comment.author === "AutoModerator" || comment.deleted) return;
+    if (authorName === "AutoModerator" || comment.deleted) return;
 
     const subredditName = event.subreddit?.name ?? "DesiModTest_Samrat";
     const permalink = comment.permalink || `/r/${subredditName}/comments/${event.post?.id ?? ""}/_/${comment.id}/`;
 
     await processModeration(context, {
       id: comment.id,
-      author: comment.author,
+      author: authorName,
       subreddit: subredditName,
       body: comment.body,
       permalink,

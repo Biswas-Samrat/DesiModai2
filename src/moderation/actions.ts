@@ -63,7 +63,8 @@ export async function applyRemovalWithStrike(
       redditId: payload.id as `t1_${string}` | `t3_${string}`,
     });
   } catch (err) {
-    logger.warn({ err, username: payload.author }, "addModNote failed (non-fatal)");
+    console.log(`[ERROR] Failed to add ModNote for user: ${payload.author}`);
+    console.log(err);
   }
 
   // 4. Strike 1 or 2 → DM user
@@ -76,7 +77,8 @@ export async function applyRemovalWithStrike(
       });
       await logWarning(context.redis);
     } catch (err) {
-      logger.warn({ err, username: payload.author }, "sendPrivateMessage failed (non-fatal)");
+      console.log(`[ERROR] Failed to send Private Message (Warning) to user: ${payload.author}`);
+      console.log(err);
     }
     return;
   }
@@ -94,7 +96,8 @@ export async function applyRemovalWithStrike(
       payload.author
     );
   } catch (err) {
-    logger.warn({ err, username: payload.author }, "ModMail send failed (non-fatal)");
+    console.log(`[ERROR] Failed to send ModMail for 3-Strike Report: u/${payload.author}`);
+    console.log(err);
   }
 }
 

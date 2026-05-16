@@ -11,6 +11,14 @@ export async function analyzeContent(
 ): Promise<ViolationResult[]> {
   const result = await askGemini(buildCombinedPrompt(text), apiKey);
 
+  const isFlagged = result.isToxic || result.isScam;
+  
+  console.log("==========================================");
+  console.log(`[TERMINAL FETCH] Content Evaluated: "${text}"`);
+  console.log(`[TERMINAL FETCH] Flagged by Gemini: ${isFlagged ? "🚨 TOXIC" : "✅ SAFE"}`);
+  console.log(`[TERMINAL FETCH] Reason Given: ${result.reason || "N/A"}`);
+  console.log("==========================================");
+
   const results: ViolationResult[] = [];
 
   if (result.isToxic) {
