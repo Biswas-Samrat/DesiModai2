@@ -14,6 +14,7 @@ import { applyRemovalWithStrike, applyReportOnly } from "./actions.js";
 import { isDuplicateAndStore } from "../storage/dedupeStore.js";
 import type { ContentPayload } from "./types.js";
 import { logger } from "../utils/logger.js";
+import { cleanContent } from "../utils/textCleaner.js";
 
 export async function processModeration(
   context: TriggerContext,
@@ -21,41 +22,91 @@ export async function processModeration(
 ): Promise<void> {
   const { id, author, body, subreddit, permalink, kind } = payload;
 
-  // 1. Get Gemini API key from Devvit Settings (not process.env)
+  // [STAGE 2] Content received: Moderating comment/post by user TestUser
+  logger.info(
+    { username: author, contentKind: kind, contentId: id, permalink },
+    `[STAGE 2] Content received: Moderating ${kind} by user ${author}`
+  );
+
+  // 1. Get Gemini API key
   const apiKey = (await context.settings.get("gemini_api_key")) as string | undefined;
   if (!apiKey) {
     logger.warn({}, "gemini_api_key not set — skipping AI moderation");
     return;
   }
 
-  // 2. Skip duplicate content in the same 15-minute window
-  const isDupe = await isDuplicateAndStore(context.redis, body);
-  if (isDupe) {
-    logger.info({ id, author }, "Skipping duplicate content");
+  // 2. Preprocessing & Logging
+  const originalText = payload.liveBody || body;
+
+  logger.debug({ id }, `[DEBUG] Trigger payload body: ${body}`);
+  logger.debug({ id }, `[DEBUG] Live fetched body: ${payload.liveBody || ""}`);
+
+  const cleanedBody = cleanContent(originalText);
+
+  // [STAGE 3] Content cleaned logs
+  logger.info(
+    { originalBody: originalText, cleanedBody, cleanedLength: cleanedBody.length },
+    "[STAGE 3] Content cleaned"
+  );
+
+  const textToAnalyze = cleanedBody || originalText;
+  logger.debug({ id }, `[DEBUG] Final moderation body length: ${textToAnalyze.length}`);
+
+  // Prevent false empty skips: only skip if BOTH original body and live body are empty
+  const isOriginalEmpty = !body || body.trim() === "";
+  const isLiveEmpty = !payload.liveBody || payload.liveBody.trim() === "";
+  if (isOriginalEmpty && isLiveEmpty) {
+    logger.info({ id }, "Both original body and live fetched body are empty — skipping moderation");
     return;
   }
 
-  // 3. Run unified AI classifier (toxicity + scam)
+  // 4. Run AI classifier
   let violations;
   try {
-    violations = await analyzeContent(body, apiKey);
-  } catch (err) {
-    logger.error({ err, id, author }, "analyzeContent failed — skipping");
+    logger.info({ id, author, len: textToAnalyze.length }, "[STAGE 4] Gemini request sent");
+    violations = await analyzeContent(textToAnalyze, apiKey);
+    logger.info({ id, author }, "[STAGE 5] Gemini response received");
+  } catch (err: any) {
+    logger.error({ err: err?.message, id, author }, "analyzeContent failed");
     return;
   }
 
-  if (!violations || violations.length === 0) return;
+  if (!violations || violations.length === 0) {
+    logger.info({ id, author }, "Content classified as SAFE");
+    return;
+  }
 
-  // 4. For each violation, apply the appropriate action
-  for (const violation of violations) {
-    const decision = getDecision(violation.confidence);
-    logger.info({ id, author, kind, violation, decision }, "Moderation decision");
+  // 5. Direct Triage: Route any Gemini result with isToxic === true OR isScam === true to applyRemovalWithStrike()
+  const toxicOrScamViolation = violations.find(v => v.type === "toxicity" || v.type === "scam");
+  if (toxicOrScamViolation) {
+    logger.info(
+      { id, author, type: toxicOrScamViolation.type },
+      `[STAGE 6] Violation detected: ${toxicOrScamViolation.type}`
+    );
+    logger.info({ id, author }, "Routing to removal pipeline");
+    await applyRemovalWithStrike(context, payload, toxicOrScamViolation);
+    logger.info({ id, author }, "Removal pipeline completed");
+  } else {
+    // 6. Separate Detection from Actions: Map decisions first (fallback/legacy logic)
+    const actionsToTake = violations.map(v => ({
+      violation: v,
+      decision: getDecision(v.confidence, v.isImplicit)
+    }));
 
-    if (decision === "remove") {
-      await applyRemovalWithStrike(context, payload, violation);
-    } else if (decision === "report") {
-      await applyReportOnly(context, payload, violation);
+    // Execute actions based on priority (removal > report)
+    const removalAction = actionsToTake.find(a => a.decision === "remove");
+    const reportAction = actionsToTake.find(a => a.decision === "report");
+
+    if (removalAction) {
+      logger.info({ id, author }, "Routing to removal pipeline (fallback)");
+      await applyRemovalWithStrike(context, payload, removalAction.violation);
+      logger.info({ id, author }, "Removal pipeline completed (fallback)");
+    } else if (reportAction) {
+      await applyReportOnly(context, payload, reportAction.violation);
+    } else {
+      logger.info({ id, author }, "No action required for detected violations (low confidence)");
     }
-    // "ignore" → do nothing
   }
 }
+
+

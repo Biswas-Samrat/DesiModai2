@@ -11,26 +11,41 @@ import type { TriggerContext } from "@devvit/public-api";
 import type { CommentSubmit } from "@devvit/protos";
 import { processModeration } from "../moderation/moderationService.js";
 
+import { logger } from "../utils/logger.js";
+
 export async function handleCommentCreate(
   event: CommentSubmit,
   context: TriggerContext
 ): Promise<void> {
   try {
     const comment = event.comment;
-    const authorName = event.author?.name;
-    if (!comment?.body || !authorName) return;
+    const authorName = event.author?.name || comment?.author;
+    if (!comment?.id || !authorName) return;
+
+    logger.info({ id: comment.id, author: authorName }, "[STAGE 1] Trigger fired: CommentSubmit");
+
+    // Fetch the real entity from Reddit API to avoid payload sanitization bugs (like '[Removed by Reddit]')
+    let liveComment = null;
+    try {
+      liveComment = await context.reddit.getCommentById(comment.id);
+    } catch (e: any) {
+      logger.warn({ id: comment.id, err: e?.message }, "Failed to fetch live comment entity");
+    }
+
+    const realBody = liveComment?.body ?? comment.body ?? "";
 
     // Skip AutoModerator and deleted content
-    if (authorName === "AutoModerator" || comment.deleted) return;
+    if (authorName.toLowerCase() === "automoderator" || comment.deleted) return;
 
     const subredditName = event.subreddit?.name ?? "DesiModTest_Samrat";
-    const permalink = comment.permalink || `/r/${subredditName}/comments/${event.post?.id ?? ""}/_/${comment.id}/`;
+    const permalink = (liveComment?.permalink || comment.permalink) || `/r/${subredditName}/comments/${event.post?.id ?? ""}/_/${comment.id}/`;
 
     await processModeration(context, {
       id: comment.id,
       author: authorName,
       subreddit: subredditName,
-      body: comment.body,
+      body: comment.body ?? "",
+      liveBody: realBody,
       permalink,
       kind: "comment",
     });

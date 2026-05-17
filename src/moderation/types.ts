@@ -10,6 +10,7 @@ export interface ContentPayload {
   author: string;
   subreddit: string;
   body: string;
+  liveBody?: string;
   permalink: string;
   kind: ContentKind;
 }
@@ -18,4 +19,6 @@ export interface ViolationResult {
   type: ViolationType;
   confidence: number;
   reason: string;
+  isImplicit?: boolean;
 }
+

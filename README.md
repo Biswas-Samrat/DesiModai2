@@ -1,158 +1,45 @@
-# DesiMod AI (Devvit + Gemini + Redis)
+# DesiMod AI 2 (Devvit + Gemini + Redis)
 
-Production-oriented multilingual AI moderation app for Indian and Bangladeshi subreddits.
+**Advanced AI Moderation for South Asian Communities.**
 
-## What It Detects
+DesiMod AI 2 is a professional-grade moderation tool designed to handle the linguistic complexities of Indian and Bangladeshi subreddits. It specializes in detecting toxicity and scams in English, Bangla, Hindi, and their Romanized counterparts (Hinglish/Banglish).
 
-- Toxicity and harassment
-- Hate speech
-- Political abuse and religious slurs
-- Scam/spam/job fraud
-- Telegram/WhatsApp scam promotion
+## Core Capabilities
 
-Supported languages:
-- Bangla
-- Hindi
-- English
-- Hinglish
-- Banglish
+- **Contextual Multilingualism**: Specialized detection for English, Bangla, Hindi, Banglish, and Hinglish using Few-Shot Chain-of-Thought reasoning.
+- **Secure Mod Dashboard**: A private, real-time analytics hub visible ONLY to your moderation team via server-side authorization.
+- **3-Strike Policy Engine**: Automates warnings and escalation reports to handle difficult users consistently.
+- **High-Visibility Highlights**: The dashboard is programmatically pinned to the subreddit highlights upon creation.
+- **Automated Evidence Reports**: ModMail escalations include direct links to evidence with AI-generated confidence scores and reasoning.
 
 ## Tech Stack
 
-- Devvit SDK
-- TypeScript
-- Node.js 22+
-- Google Gemini (`@google/generative-ai`)
-- Redis (`ioredis`)
-- Zod
-- Pino
-- Bottleneck
-- Vitest
+- **Devvit SDK**: Native Reddit integration.
+- **Google Gemini 1.5 Flash**: SOTA linguistic analysis.
+- **Redis**: Fast persistence for strikes, deduplication, and analytics.
+- **TypeScript**: Type-safe architectural foundation.
 
-## Architecture
+## Moderation Policy
 
-```text
-src/
-  ai/
-  triggers/
-  moderation/
-  dashboard/
-  storage/
-  prompts/
-  utils/
-  tests/
-```
+1. **Auto-Removal**: Confidence >= 0.92 (Strict threshold for automated actions).
+2. **Human-in-the-Loop Triage**: Confidence >= 0.70 (or 0.60 for Implicit Toxicity) results in a report to the modqueue.
+3. **3-Strike Escalation**:
+   - **Strikes 1-2**: Content removal + DM warning + ModNote.
+   - **Strike 3**: Content removal + ModMail report to human moderators (No auto-ban).
 
-## Moderation Policy Logic
+## Setup & Deployment
 
-Gemini returns structured JSON only. Moderation action is always decided by app logic:
+1. **Install**: `npm install`
+2. **Configure**: Set `gemini_api_key` in the app settings on Reddit.
+3. **Deploy**: `devvit deploy`
+4. **Dashboard**: Use the Subreddit Menu item "Create DesiMod Dashboard" to initialize your analytics hub.
 
-- `confidence >= 0.90` -> auto-remove
-- `0.70 <= confidence < 0.90` -> report/modqueue only
-- `< 0.70` -> ignore
+## Security & Compliance
 
-## Strike System (Redis)
+- **Authorization**: Dashboard access is restricted to moderators via `getCurrentUser` and `getModerators` runtime checks.
+- **Feedback Loops**: The app ignores posts from moderators and its own service account.
+- **Data Minimization**: Adheres to the Responsible Builder Policy by only storing necessary metadata for moderation actions.
 
-Key: `user:<username>:strikes`
+---
+*Built for the Reddit mod community.*
 
-- 1st strike: remove + warning DM + mod note
-- 2nd strike: remove + warning DM + mod note
-- 3rd strike: remove + modmail escalation with evidence link (no auto-ban)
-
-## Setup
-
-1. Install dependencies:
-
-```bash
-npm install
-```
-
-2. Create env file:
-
-```bash
-cp .env.example .env
-```
-
-3. Fill `.env`:
-
-- `GEMINI_API_KEY`
-- `REDIS_URL`
-- Optional logging/subreddit vars
-
-4. Start Redis:
-
-```bash
-docker run -p 6379:6379 redis:7
-```
-
-5. Run tests:
-
-```bash
-npm test
-```
-
-6. Run locally:
-
-```bash
-npm run dev
-```
-
-## Devvit Configuration
-
-`devvit.yaml`:
-- app name
-- version
-- `entrypoint: src/main.tsx`
-
-`src/main.tsx` registers:
-- `CommentCreate` trigger
-- `PostCreate` trigger
-- moderator dashboard custom post type
-- subreddit menu item to open dashboard
-
-## Dashboard (Devvit Blocks)
-
-Moderator-only UI includes:
-- date range selector (1/3/7 days)
-- total toxic removals
-- total scam removals
-- warnings
-- escalations to modmail
-- estimated moderator time saved
-
-Handles:
-- empty state
-- invalid date range
-- non-mod access
-
-## Testing Strategy
-
-- Unit tests for confidence decision engine
-- Unit tests for analyzer mapping with mocked Gemini
-- Integration test for trigger -> moderation service handoff
-- Dataset fixture includes Bangla/Hindi/Hinglish/Banglish toxic + safe + scam examples
-
-## Deployment
-
-1. Authenticate with Devvit CLI.
-2. Set environment variables in your deployment environment.
-3. Ensure Redis is reachable from app runtime.
-4. Deploy:
-
-```bash
-devvit deploy
-```
-
-## Publishing
-
-1. Verify triggers and dashboard behavior in a private test subreddit.
-2. Run moderation dry-runs with logging enabled.
-3. Submit app through Devvit app publish flow from CLI/dashboard.
-4. Roll out gradually and monitor false positives from logs and modmail escalations.
-
-## Security
-
-- No secrets in source code
-- API keys and connection strings via environment variables only
-- Redis lock and dedupe keys reduce repeated moderation actions
-# DesiModai2

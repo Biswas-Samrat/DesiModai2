@@ -1,7 +1,7 @@
 import { Devvit } from "@devvit/public-api";
 import { handleCommentCreate } from "./triggers/onCommentCreate.js";
 import { handlePostCreate } from "./triggers/onPostCreate.js";
-import { ModDashboard } from "./dashboard/modDashboard.js";
+import { Dashboard } from "./dashboard/dashboard.js";
 
 // Declare all capabilities the app needs
 Devvit.configure({
@@ -36,35 +36,61 @@ Devvit.addTrigger({
 
 // Custom Post Type: Mod Analytics Dashboard
 Devvit.addCustomPostType({
-  name: "DesiMod Dashboard",
-  description: "AI moderation analytics for r/DesiModTest_Samrat",
-  render: ModDashboard,
+  name: "dashboard",
+  description: "DesiMod AI Moderation Dashboard",
+  render: Dashboard,
 });
 
-// Subreddit menu item: create a dashboard post
+// Subreddit menu item: open/create a dashboard post
 Devvit.addMenuItem({
-  label: "Create DesiMod Dashboard",
+  label: "Open DesiMod Dashboard",
   location: "subreddit",
   forUserType: "moderator",
   onPress: async (_event, context) => {
     try {
       const subreddit = await context.reddit.getCurrentSubreddit();
-      await context.reddit.submitPost({
-        title: "DesiMod AI — Moderation Dashboard",
+      const redisKey = `dashboard_post_id:${subreddit.name}`;
+
+      // 1. DUP CHECK: Try to find an existing dashboard post
+      const existingPostId = await context.redis.get(redisKey);
+      if (existingPostId) {
+        try {
+          const existingPost = await context.reddit.getPostById(existingPostId);
+          if (existingPost) {
+            context.ui.showToast("Opening existing dashboard...");
+            context.ui.navigateTo(existingPost);
+            return;
+          }
+        } catch (e) {
+          // Post might have been deleted, proceed to create a new one
+          console.log("Existing dashboard post not found, creating a new one.");
+        }
+      }
+
+      // 2. CREATE: Use submitPost with a preview (Modern Devvit Blocks approach)
+      const post = await context.reddit.submitPost({
+        title: "DesiMod AI Moderation Dashboard",
         subredditName: subreddit.name,
         preview: (
-          <vstack padding="large" alignment="center middle">
-            <text size="large" weight="bold">
-              DesiMod AI Dashboard
-            </text>
-            <text size="small">Loading stats...</text>
+          <vstack padding="large" alignment="center middle" gap="medium">
+            <image url="https://i.redd.it/snoo_loading.gif" imageWidth={48} imageHeight={48} />
+            <text size="large" weight="bold">DesiMod AI Dashboard</text>
+            <text size="small">Initializing secure moderator view...</text>
           </vstack>
         ),
       });
-      context.ui.showToast("✅ Dashboard post created!");
+
+      // 3. PERSIST & PIN: Store the ID to avoid duplicates and sticky the post
+      await context.redis.set(redisKey, post.id);
+      await post.sticky();
+
+      context.ui.showToast("✅ Dashboard created and pinned!");
+
+      // 4. NAVIGATE: Open the dashboard post immediately
+      context.ui.navigateTo(post);
     } catch (err) {
-      console.error("Menu item error:", err);
-      context.ui.showToast("❌ Failed to create dashboard. Check mod permissions.");
+      console.error("Dashboard creation failed:", err);
+      context.ui.showToast("❌ Failed to create dashboard.");
     }
   },
 });

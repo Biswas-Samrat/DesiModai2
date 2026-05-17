@@ -13,19 +13,22 @@ export async function analyzeContent(
 
   const isFlagged = result.isToxic || result.isScam;
   
-  console.log("==========================================");
-  console.log(`[TERMINAL FETCH] Content Evaluated: "${text}"`);
-  console.log(`[TERMINAL FETCH] Flagged by Gemini: ${isFlagged ? "🚨 TOXIC" : "✅ SAFE"}`);
-  console.log(`[TERMINAL FETCH] Reason Given: ${result.reason || "N/A"}`);
-  console.log("==========================================");
+  // Terminal logging for developer visibility
+  console.log(`[GEMINI] Eval: "${text.slice(0, 50)}${text.length > 50 ? "..." : ""}"`);
+  console.log(`[GEMINI] Result: ${isFlagged ? "🚨 FLAGGED" : "✅ SAFE"} (Conf: ${(result.confidence * 100).toFixed(0)}%)`);
+  if (isFlagged) {
+    console.log(`[GEMINI] Reason: ${result.reason}`);
+  }
 
   const results: ViolationResult[] = [];
+  const isImplicit = (result as any).isImplicit || false;
 
   if (result.isToxic) {
     results.push({
       type: "toxicity",
       confidence: result.confidence,
       reason: result.reason,
+      isImplicit,
     });
   }
 
@@ -34,8 +37,11 @@ export async function analyzeContent(
       type: "scam",
       confidence: result.confidence,
       reason: result.reason,
+      isImplicit,
     });
   }
 
   return results;
 }
+
+
