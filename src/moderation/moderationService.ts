@@ -50,7 +50,8 @@ export async function processModeration(
   );
 
   const textToAnalyze = cleanedBody || originalText;
-  logger.debug({ id }, `[DEBUG] Final moderation body length: ${textToAnalyze.length}`);
+  logger.debug({ id }, `[DEBUG] Final moderation body: ${textToAnalyze}`);
+  logger.info({ id, textLength: textToAnalyze.length }, "moderation body chosen");
 
   // Prevent false empty skips: only skip if BOTH original body and live body are empty
   const isOriginalEmpty = !body || body.trim() === "";
@@ -63,9 +64,9 @@ export async function processModeration(
   // 4. Run AI classifier
   let violations;
   try {
-    logger.info({ id, author, len: textToAnalyze.length }, "[STAGE 4] Gemini request sent");
-    violations = await analyzeContent(textToAnalyze, apiKey);
-    logger.info({ id, author }, "[STAGE 5] Gemini response received");
+    logger.info({ id, author, len: textToAnalyze.length }, "Gemini request sent");
+    violations = await analyzeContent(textToAnalyze, apiKey, context.redis);
+    logger.info({ id, author }, "Gemini response received");
   } catch (err: any) {
     logger.error({ err: err?.message, id, author }, "analyzeContent failed");
     return;

@@ -3,20 +3,18 @@ import { RedditAPIClient } from "@devvit/public-api";
 /**
  * Validates a Reddit username to avoid USER_DOESNT_EXIST errors,
  * especially during playtest where usernames may be deleted or missing.
- * Note: We do NOT check for "[redacted]" or "redacted" in this function,
- * so we do not block valid users who happen to have "redacted" in their name
- * or when the logging system redacts usernames.
  */
 export function isValidRedditUsername(username: string | undefined): boolean {
   if (!username) return false;
   const lower = username.toLowerCase().trim();
   
-  // Filter out truly missing, deleted, or AutoModerator accounts.
+  // Filter out truly missing, deleted, [redacted], or AutoModerator accounts.
   if (
     lower === "" ||
     lower === "[deleted]" ||
     lower === "deleted" ||
-    lower === "automoderator"
+    lower === "automoderator" ||
+    lower === "[redacted]"
   ) {
     return false;
   }

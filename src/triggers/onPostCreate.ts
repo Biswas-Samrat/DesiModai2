@@ -19,15 +19,18 @@ export async function handlePostCreate(
 ): Promise<void> {
   try {
     const post = event.post;
-    const authorName = event.author?.name;
-    if (!post?.id || !authorName) return;
+    let initialAuthorName = event.author?.name || "";
+    if (!post?.id) return;
 
-    logger.info({ id: post.id, author: authorName }, "[STAGE 1] Trigger fired: PostSubmit");
+    logger.info({ id: post.id, author: initialAuthorName }, "trigger fired");
 
     // Fetch the real entity from Reddit API to avoid payload sanitization bugs (like '[Removed by Reddit]')
     let livePost = null;
     try {
       livePost = await context.reddit.getPostById(post.id);
+      if (livePost) {
+        logger.info({ id: post.id }, "live entity fetched");
+      }
     } catch (e: any) {
       logger.warn({ id: post.id, err: e?.message }, "Failed to fetch live post entity");
     }
@@ -42,15 +45,20 @@ export async function handlePostCreate(
       post.selftext ?? ""
     ].join("\n").trim();
 
-    // Skip AutoModerator and deleted content
-    if (authorName.toLowerCase() === "automoderator" || post.deleted) return;
+    const realAuthorName = livePost?.authorName || initialAuthorName;
+
+    // Skip if already deleted or removed
+    if (post.deleted) {
+      logger.info({ id: post.id }, "Post already deleted — skipping moderation");
+      return;
+    }
 
     const subredditName = event.subreddit?.name ?? "DesiModTest_Samrat";
     const permalink = (livePost?.permalink || post.permalink) || `/r/${subredditName}/comments/${post.id}/`;
 
     await processModeration(context, {
       id: post.id,
-      author: authorName,
+      author: realAuthorName,
       subreddit: subredditName,
       body: triggerBody,
       liveBody: realBody,

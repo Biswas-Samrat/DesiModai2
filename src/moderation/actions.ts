@@ -84,8 +84,10 @@ export async function applyRemovalWithStrike(
     await logRemoval(context.redis, violation.type);
     removalSucceeded = true;
     logger.info({ id, author, redactedAuthor, kind, permalink }, `[STAGE 8] Removal completed successfully for ${kind} by user ${author}`);
+    logger.info({ id, author }, "removal success");
   } catch (err: any) {
     logger.error({ err: err?.message, id, author, redactedAuthor, kind }, `[STAGE 8] Removal failed: ${err?.message || String(err)}`);
+    logger.error({ err: err?.message, id, author }, "removal failure");
   }
 
   // 3. Increment strike counter (Stage 9)
@@ -93,8 +95,10 @@ export async function applyRemovalWithStrike(
   try {
     strikeCount = await incrementStrikes(context.redis, author);
     logger.info({ author, redactedAuthor, strikeCount }, `[STAGE 9] Strike incremented successfully for user ${author}. Total strikes: ${strikeCount}`);
+    logger.info({ author, strikeCount }, "strike increment success");
   } catch (err: any) {
     logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 9] Strike increment failed: ${err?.message || String(err)}`);
+    logger.error({ err: err?.message, author }, "strike increment failure");
   }
 
   // 4. Add a ModNote (Concise & Safe) (Stage 10)
@@ -110,6 +114,7 @@ export async function applyRemovalWithStrike(
         redditId: id as any,
       });
       logger.info({ author, redactedAuthor, action: "modnote" }, `[STAGE 10] Mod note added successfully for user ${author}`);
+      logger.info({ author }, "ModNote success");
     } else {
       logger.warn(
         { author, redactedAuthor },
@@ -118,6 +123,7 @@ export async function applyRemovalWithStrike(
     }
   } catch (err: any) {
     logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 10] Mod note addition failed: ${err?.message || String(err)}`);
+    logger.error({ err: err?.message, author }, "ModNote failure");
   }
 
   // 5. Strike 1 or 2 → DM user (Stage 11)
@@ -131,6 +137,7 @@ export async function applyRemovalWithStrike(
         });
         await logWarning(context.redis);
         logger.info({ author, redactedAuthor, strikeCount, action: "dm" }, `[STAGE 11] Warning DM sent successfully to user ${author}`);
+        logger.info({ author, strikeCount }, "warning DM success");
       } else {
         logger.warn(
           { author, redactedAuthor },
@@ -139,19 +146,29 @@ export async function applyRemovalWithStrike(
       }
     } catch (err: any) {
       logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 11] Warning DM failed: ${err?.message || String(err)}`);
+      logger.error({ err: err?.message, author }, "warning DM failure");
     }
   } else {
     // 6. Strike 3+ → Modmail report to moderators (Stage 12)
     try {
-      await safeSendModmail(context.reddit, {
-        subredditId: context.subredditId,
-        subject: `3-Strike Report: u/${author}`,
-        body: modMailBody(author, violation, permalink, strikeCount, kind),
-      });
-      await logEscalation(context.redis, `https://reddit.com${permalink}`, author);
-      logger.info({ author, redactedAuthor, strikeCount, action: "modmail" }, `[STAGE 12] Modmail sent successfully for user ${author}`);
+      if (isValidRedditUsername(author)) {
+        await safeSendModmail(context.reddit, {
+          subredditId: context.subredditId,
+          subject: `3-Strike Report: u/${author}`,
+          body: modMailBody(author, violation, permalink, strikeCount, kind),
+        });
+        await logEscalation(context.redis, `https://reddit.com${permalink}`, author);
+        logger.info({ author, redactedAuthor, strikeCount, action: "modmail" }, `[STAGE 12] Modmail sent successfully for user ${author}`);
+        logger.info({ author, strikeCount }, "modmail success");
+      } else {
+        logger.warn(
+          { author, redactedAuthor },
+          `[STAGE 12] Skipping Modmail: username is truly invalid or missing`
+        );
+      }
     } catch (err: any) {
       logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 12] Modmail failed: ${err?.message || String(err)}`);
+      logger.error({ err: err?.message, author }, "modmail failure");
     }
   }
 }

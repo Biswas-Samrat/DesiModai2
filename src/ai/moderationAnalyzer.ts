@@ -1,15 +1,17 @@
 /**
  * moderationAnalyzer.ts — runs single unified classifier against content.
  */
+import type { RedisClient } from "@devvit/public-api";
 import { askGemini } from "./geminiClient.js";
 import { buildCombinedPrompt } from "../prompts/combinedModerationPrompt.js";
 import type { ViolationResult } from "../moderation/types.js";
 
 export async function analyzeContent(
   text: string,
-  apiKey: string
+  apiKey: string,
+  redis?: RedisClient
 ): Promise<ViolationResult[]> {
-  const result = await askGemini(buildCombinedPrompt(text), apiKey);
+  const result = await askGemini(buildCombinedPrompt(text), apiKey, redis);
 
   const isFlagged = result.isToxic || result.isScam;
   
