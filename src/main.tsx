@@ -51,23 +51,83 @@ Devvit.addMenuItem({
       const subreddit = await context.reddit.getCurrentSubreddit();
       const redisKey = `dashboard_post_id:${subreddit.name}`;
 
-      // 1. DUP CHECK: Try to find an existing dashboard post
-      const existingPostId = await context.redis.get(redisKey);
+      let existingPost = null;
+      let existingPostId = await context.redis.get(redisKey);
+
+      // 1. DUP CHECK: Try to find an existing dashboard post in Redis
       if (existingPostId) {
         try {
-          const existingPost = await context.reddit.getPostById(existingPostId);
-          if (existingPost) {
-            context.ui.showToast("Opening existing dashboard...");
-            context.ui.navigateTo(existingPost);
-            return;
-          }
+          existingPost = await context.reddit.getPostById(existingPostId);
         } catch (e) {
-          // Post might have been deleted, proceed to create a new one
-          console.log("Existing dashboard post not found, creating a new one.");
+          console.log(`[INFO] Dashboard post ID ${existingPostId} stored in Redis could not be fetched (likely deleted).`);
         }
       }
 
-      // 2. CREATE: Use submitPost with a preview (Modern Devvit Blocks approach)
+      // 2. DUP CHECK: If not found in Redis, search hot posts in the subreddit to be absolutely sure
+      if (!existingPost) {
+        console.log(`[INFO] Searching hot posts in r/${subreddit.name} for an existing DesiMod AI Moderation Dashboard post...`);
+        try {
+          const hotPosts = await context.reddit.getHotPosts({
+            subredditName: subreddit.name,
+            limit: 20,
+          }).all();
+
+          const found = hotPosts.find((p) => p.title === "DesiMod AI Moderation Dashboard");
+          if (found) {
+            existingPost = found;
+            existingPostId = found.id;
+            await context.redis.set(redisKey, found.id);
+          }
+        } catch (err) {
+          console.error("Error searching hot posts for dashboard:", err);
+        }
+      }
+
+      // 3. DUP CHECK: If still not found, check new posts in the subreddit to cover all bases
+      if (!existingPost) {
+        console.log(`[INFO] Searching new posts in r/${subreddit.name} for an existing DesiMod AI Moderation Dashboard post...`);
+        try {
+          const newPosts = await context.reddit.getNewPosts({
+            subredditName: subreddit.name,
+            limit: 20,
+          }).all();
+
+          const found = newPosts.find((p) => p.title === "DesiMod AI Moderation Dashboard");
+          if (found) {
+            existingPost = found;
+            existingPostId = found.id;
+            await context.redis.set(redisKey, found.id);
+          }
+        } catch (err) {
+          console.error("Error searching new posts for dashboard:", err);
+        }
+      }
+
+      // 4. REUSE EXISTING DASHBOARD: If found, secure it and open it
+      if (existingPost) {
+        console.log(`[INFO] dashboard already exists: ${existingPost.id}`);
+        console.log(`[INFO] dashboard reused: ${existingPost.id}`);
+        context.ui.showToast("Opening existing dashboard...");
+
+        try {
+          await existingPost.sticky();
+          console.log(`[INFO] dashboard highlighted: ${existingPost.id}`);
+        } catch (err) {
+          console.error("Error stickying existing dashboard:", err);
+        }
+
+        try {
+          await context.reddit.remove(existingPost.id, false);
+          console.log(`[INFO] dashboard hidden from non-mods: ${existingPost.id}`);
+        } catch (err) {
+          console.error("Error removing existing dashboard:", err);
+        }
+
+        context.ui.navigateTo(existingPost);
+        return;
+      }
+
+      // 5. CREATE NEW DASHBOARD: Submit post with a preview (Modern Devvit Blocks approach)
       const post = await context.reddit.submitPost({
         title: "DesiMod AI Moderation Dashboard",
         subredditName: subreddit.name,
@@ -80,13 +140,26 @@ Devvit.addMenuItem({
         ),
       });
 
-      // 3. PERSIST & PIN: Store the ID to avoid duplicates and sticky the post
+      console.log(`[INFO] dashboard created: ${post.id}`);
+
+      // Store the new dashboard ID in Redis for subsequent quick accesses
       await context.redis.set(redisKey, post.id);
-      await post.sticky();
 
-      context.ui.showToast("✅ Dashboard created and pinned!");
+      try {
+        await post.sticky();
+        console.log(`[INFO] dashboard highlighted: ${post.id}`);
+      } catch (err) {
+        console.error("Error stickying new dashboard:", err);
+      }
 
-      // 4. NAVIGATE: Open the dashboard post immediately
+      try {
+        await context.reddit.remove(post.id, false);
+        console.log(`[INFO] dashboard hidden from non-mods: ${post.id}`);
+      } catch (err) {
+        console.error("Error removing new dashboard:", err);
+      }
+
+      context.ui.showToast("✅ Dashboard created and secured!");
       context.ui.navigateTo(post);
     } catch (err) {
       console.error("Dashboard creation failed:", err);

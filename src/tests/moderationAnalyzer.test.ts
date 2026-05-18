@@ -12,11 +12,12 @@ describe("moderationAnalyzer", () => {
       isScam: true,
       confidence: 0.95,
       reason: "Toxic and contains scam",
+      isImplicit: false
     });
 
     const results = await analyzeContent("test", "fake-api-key");
-    expect(results).toHaveLength(2);
-    expect(results[0].type).toBe("toxicity");
-    expect(results[1].type).toBe("scam");
+    expect(results.violations).toHaveLength(2);
+    expect(results.violations[0].type).toBe("toxicity");
+    expect(results.violations[1].type).toBe("scam");
   });
 });

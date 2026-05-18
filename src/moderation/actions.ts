@@ -1,29 +1,71 @@
 /**
  * actions.ts — enforces the 3-strike policy after AI flags content.
  *
- * Strike 1 & 2: remove content + DM warning + add ModNote
- * Strike 3:     remove content + send ModMail to subreddit mods with evidence
- *               (NO auto-ban — violates Reddit policy)
+ * Strike 1 & 2:
+ * - remove content
+ * - increment strike
+ * - send DM warning
+ * - add ModNote
+ *
+ * Strike 3+:
+ * - remove content
+ * - increment strike
+ * - send ModMail to subreddit moderators
+ * - NO auto-ban (Reddit policy safe)
  */
+
 import type { TriggerContext } from "@devvit/public-api";
 import type { ContentPayload, ViolationType } from "./types.js";
-import { incrementStrikes } from "../storage/strikeStore.js";
-import { logEscalation, logRemoval, logWarning } from "../storage/analyticsStore.js";
+
+import {
+  getStrikes,
+  incrementStrikes,
+} from "../storage/strikeStore.js";
+
+import {
+  logEscalation,
+  logRemoval,
+  logWarning,
+} from "../storage/analyticsStore.js";
+
 import { logger } from "../utils/logger.js";
-import { safeAddModNote, safeSendPM, safeSendModmail, redactUsername, isValidRedditUsername } from "../utils/redditHelpers.js";
 
-const SUBREDDIT = "DesiModTest_Samrat";
+import {
+  safeAddModNote,
+  safeSendPM,
+  safeSendModmail,
+  redactUsername,
+  isValidRedditUsername,
+} from "../utils/redditHelpers.js";
 
-function dmWarningText(strikeNum: number): string {
+import {
+  REDIS_KEYS,
+  REDIS_TTLS,
+} from "../constants/redisKeys.js";
+
+/**
+ * Creates DM warning text
+ */
+function dmWarningText(
+  strikeNum: number,
+  subreddit: string
+): string {
   return (
-    `Warning ${strikeNum}/3: Violation detected. Please follow r/${SUBREDDIT} rules.\n\n` +
-    `If you believe this is an error, appeal via ModMail: https://reddit.com/message/compose?to=/r/DesiMod998`
+    `Warning ${strikeNum}/3: Violation detected. Please follow r/${subreddit} rules.\n\n` +
+    `If you believe this is an error, appeal via ModMail: https://reddit.com/message/compose?to=/r/${subreddit}`
   );
 }
 
+/**
+ * Creates ModMail body
+ */
 function modMailBody(
   username: string,
-  violation: { type: ViolationType; reason: string; confidence: number },
+  violation: {
+    type: ViolationType;
+    reason: string;
+    confidence: number;
+  },
   permalink: string,
   strikes: number,
   kind: "post" | "comment"
@@ -31,79 +73,280 @@ function modMailBody(
   return (
     `### ⚠️ 3-Strike Escalation: u/${username}\n\n` +
     `The user u/${username} has reached **${strikes} strikes**. Manual review required.\n\n` +
+
     `**AI Assessment:**\n` +
     `- **Violation Type:** ${violation.type}\n` +
     `- **Confidence:** ${(violation.confidence * 100).toFixed(0)}%\n` +
     `- **Reason:** ${violation.reason}\n\n` +
+
     `**Violation Details:**\n` +
     `- **Content Type:** ${kind}\n` +
     `- **Context Link:** https://reddit.com${permalink}\n\n` +
+
     `*Note: No auto-ban has been issued. Please evaluate for potential suspension.*`
   );
 }
 
 /**
- * Maps violation types to short descriptors for mod notes.
+ * Short reason for ModNote
  */
 function getShortReason(type: ViolationType): string {
   switch (type) {
-    case "toxicity": return "Toxicity: moderator abuse/harassment";
-    case "scam": return "Scam: suspicious promotion/spam";
-    default: return "Policy violation";
+    case "toxicity":
+      return "Toxicity: moderator abuse/harassment";
+
+    case "scam":
+      return "Scam: suspicious promotion/spam";
+
+    default:
+      return "Policy violation";
   }
 }
 
 /**
- * Removes content, increments the user's strike counter, sends a DM warning
- * (strikes 1–2) or ModMail to mods (strike 3+).
+ * Warning-only action
+ */
+export async function applyWarningOnly(
+  context: TriggerContext,
+  payload: ContentPayload,
+  violation: {
+    type: ViolationType;
+    reason: string;
+    confidence: number;
+  }
+): Promise<void> {
+  const { author, subreddit } = payload;
+
+  const redactedAuthor = redactUsername(author);
+
+  logger.info(
+    { username: author },
+    `Starting applyWarningOnly pipeline for user ${author}`
+  );
+
+  if (isValidRedditUsername(author)) {
+    try {
+      await safeSendPM(context.reddit, {
+        to: author,
+        subject: `Moderator Warning — Policy Violation`,
+        text:
+          `Warning: Violation detected. Please follow rules.\n\n` +
+          `If you believe this is an error, appeal via ModMail.`,
+      });
+
+      await logWarning(context.redis);
+
+      logger.info(
+        { author, redactedAuthor, action: "dm" },
+        "warning DM success"
+      );
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message, author },
+        "warning DM failure"
+      );
+    }
+  }
+}
+
+/**
+ * Main moderation removal pipeline
  */
 export async function applyRemovalWithStrike(
   context: TriggerContext,
   payload: ContentPayload,
-  violation: { type: ViolationType; reason: string; confidence: number }
+  violation: {
+    type: ViolationType;
+    reason: string;
+    confidence: number;
+  },
+  decisionLevel: "MEDIUM" | "HIGH"
 ): Promise<void> {
-  const { author, subreddit, id, permalink, kind } = payload;
+  const {
+    author,
+    subreddit,
+    id,
+    permalink,
+    kind,
+  } = payload;
+
   const redactedAuthor = redactUsername(author);
 
-  // 1. Log the action chosen
+  /**
+   * =========================================
+   * 1. Duplicate protection lock
+   * =========================================
+   */
+
+  const strikeLockKey = REDIS_KEYS.strikeLock(id);
+
+  const isStrikeLocked =
+    await context.redis.get(strikeLockKey);
+
+  if (isStrikeLocked) {
+    logger.info(
+      { id, author, subreddit },
+      "[STRIKE_DUPLICATE_SKIPPED]"
+    );
+
+    return;
+  }
+
+  await context.redis.set(
+    strikeLockKey,
+    "1",
+    {
+      expiration: new Date(
+        Date.now() + REDIS_TTLS.strikeLockMs
+      ),
+    }
+  );
+
+  /**
+   * =========================================
+   * 2. Log moderation start
+   * =========================================
+   */
+
   logger.info(
-    { username: author, redactedAuthor, type: violation.type, action: "remove", kind },
+    {
+      username: author,
+      redactedAuthor,
+      type: violation.type,
+      action: "remove",
+      kind,
+    },
     `Starting applyRemovalWithStrike moderation pipeline for ${kind} by user ${author}`
   );
 
-  // 2. Fetch and Remove the content (Stage 7 & 8)
-  let removalSucceeded = false;
+  /**
+   * =========================================
+   * 3. Remove content
+   * =========================================
+   */
+
   try {
-    logger.info({ id, author, redactedAuthor, kind, permalink }, `[STAGE 7] Removal started for ${kind} by user ${author}`);
+    logger.info(
+      {
+        id,
+        author,
+        redactedAuthor,
+        kind,
+        permalink,
+      },
+      `[STAGE 7] Removal started for ${kind} by user ${author}`
+    );
+
     const thing =
       kind === "comment"
         ? await context.reddit.getCommentById(id)
         : await context.reddit.getPostById(id);
 
     await context.reddit.remove(thing.id, false);
+
     await logRemoval(context.redis, violation.type);
-    removalSucceeded = true;
-    logger.info({ id, author, redactedAuthor, kind, permalink }, `[STAGE 8] Removal completed successfully for ${kind} by user ${author}`);
-    logger.info({ id, author }, "removal success");
+
+    logger.info(
+      {
+        id,
+        author,
+        redactedAuthor,
+        kind,
+        permalink,
+      },
+      `[STAGE 8] Removal completed successfully for ${kind} by user ${author}`
+    );
+
+    logger.info(
+      { id, author },
+      "removal success"
+    );
   } catch (err: any) {
-    logger.error({ err: err?.message, id, author, redactedAuthor, kind }, `[STAGE 8] Removal failed: ${err?.message || String(err)}`);
-    logger.error({ err: err?.message, id, author }, "removal failure");
+    logger.error(
+      {
+        err: err?.message,
+        id,
+        author,
+        redactedAuthor,
+        kind,
+      },
+      `[STAGE 8] Removal failed: ${err?.message || String(err)}`
+    );
+
+    logger.error(
+      { err: err?.message, id, author },
+      "removal failure"
+    );
   }
 
-  // 3. Increment strike counter (Stage 9)
+  /**
+   * =========================================
+   * 4. Increment strikes
+   * =========================================
+   */
+
   let strikeCount = 0;
+
   try {
-    strikeCount = await incrementStrikes(context.redis, author);
-    logger.info({ author, redactedAuthor, strikeCount }, `[STAGE 9] Strike incremented successfully for user ${author}. Total strikes: ${strikeCount}`);
-    logger.info({ author, strikeCount }, "strike increment success");
+    logger.info(
+      { author, redactedAuthor },
+      "[STRIKE_INCREMENT_START]"
+    );
+
+    const previousStrikeCount =
+      await getStrikes(context.redis, author);
+
+    strikeCount =
+      await incrementStrikes(context.redis, author);
+
+    /**
+     * HIGH severity = double strike
+     */
+    if (decisionLevel === "HIGH") {
+      strikeCount =
+        await incrementStrikes(context.redis, author);
+    }
+
+    const updatedStrikeCount = strikeCount;
+
+    logger.info(
+      {
+        author,
+        redactedAuthor,
+        previousStrikeCount,
+        updatedStrikeCount,
+      },
+      `[STRIKE_INCREMENT_END] Strike incremented successfully for user ${author}. previousStrikeCount: ${previousStrikeCount}, updatedStrikeCount: ${updatedStrikeCount}`
+    );
   } catch (err: any) {
-    logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 9] Strike increment failed: ${err?.message || String(err)}`);
-    logger.error({ err: err?.message, author }, "strike increment failure");
+    logger.error(
+      {
+        err: err?.message,
+        author,
+        redactedAuthor,
+      },
+      `[STAGE 9] Strike increment failed: ${err?.message || String(err)}`
+    );
+
+    logger.error(
+      { err: err?.message, author },
+      "strike increment failure"
+    );
   }
 
-  // 4. Add a ModNote (Concise & Safe) (Stage 10)
-  const shortReason = getShortReason(violation.type);
-  const modNoteText = `[DesiMod AI] ${shortReason} | Strike: ${strikeCount} | Conf: ${(violation.confidence * 100).toFixed(0)}%`;
+  /**
+   * =========================================
+   * 5. Add ModNote
+   * =========================================
+   */
+
+  const shortReason =
+    getShortReason(violation.type);
+
+  const modNoteText =
+    `[DesiMod AI] ${shortReason} | ` +
+    `Strike: ${strikeCount} | ` +
+    `Conf: ${(violation.confidence * 100).toFixed(0)}%`;
 
   try {
     if (isValidRedditUsername(author)) {
@@ -113,85 +356,272 @@ export async function applyRemovalWithStrike(
         note: modNoteText,
         redditId: id as any,
       });
-      logger.info({ author, redactedAuthor, action: "modnote" }, `[STAGE 10] Mod note added successfully for user ${author}`);
-      logger.info({ author }, "ModNote success");
+
+      logger.info(
+        {
+          author,
+          redactedAuthor,
+          action: "modnote",
+        },
+        `[STAGE 10] Mod note added successfully for user ${author}`
+      );
+
+      logger.info(
+        { author },
+        "ModNote success"
+      );
     } else {
       logger.warn(
         { author, redactedAuthor },
-        `[STAGE 10] Skipping mod note: username is truly invalid or missing`
+        `[STAGE 10] Skipping mod note: username invalid`
       );
     }
   } catch (err: any) {
-    logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 10] Mod note addition failed: ${err?.message || String(err)}`);
-    logger.error({ err: err?.message, author }, "ModNote failure");
+    logger.error(
+      {
+        err: err?.message,
+        author,
+        redactedAuthor,
+      },
+      `[STAGE 10] Mod note addition failed: ${err?.message || String(err)}`
+    );
+
+    logger.error(
+      { err: err?.message, author },
+      "ModNote failure"
+    );
   }
 
-  // 5. Strike 1 or 2 → DM user (Stage 11)
+  /**
+   * =========================================
+   * 6. Strike 1 & 2 → Send DM
+   * =========================================
+   */
+
   if (strikeCount <= 2) {
     try {
       if (isValidRedditUsername(author)) {
-        await safeSendPM(context.reddit, {
-          to: author,
-          subject: `Moderator Warning — Strike ${strikeCount}/3`,
-          text: dmWarningText(strikeCount),
-        });
-        await logWarning(context.redis);
-        logger.info({ author, redactedAuthor, strikeCount, action: "dm" }, `[STAGE 11] Warning DM sent successfully to user ${author}`);
-        logger.info({ author, strikeCount }, "warning DM success");
+
+        /**
+         * Prevent duplicate DM
+         * ONLY for same strike level
+         */
+
+        const strikeDmKey =
+          `desimod:last_dm_strike:${subreddit}:${author}`;
+
+        const lastStrikeDm =
+          await context.redis.get(strikeDmKey);
+
+        /**
+         * Send DM only if this strike
+         * has not already been sent
+         */
+
+        if (lastStrikeDm !== String(strikeCount)) {
+
+          await safeSendPM(context.reddit, {
+            to: author,
+
+            subject:
+              `Moderator Warning — Strike ${strikeCount}/3`,
+
+            text: dmWarningText(
+              strikeCount,
+              subreddit
+            ),
+          });
+
+          /**
+           * Store last DM strike
+           */
+
+          await context.redis.set(
+            strikeDmKey,
+            String(strikeCount),
+            {
+              expiration: new Date(
+                Date.now() + REDIS_TTLS.dmCooldownMs
+              ),
+            }
+          );
+
+          await logWarning(context.redis);
+
+          logger.info(
+            {
+              author,
+              redactedAuthor,
+              strikeCount,
+              action: "dm",
+            },
+            `[STAGE 11] Warning DM sent successfully to user ${author}`
+          );
+
+          logger.info(
+            { author, strikeCount },
+            "warning DM success"
+          );
+
+        } else {
+
+          logger.info(
+            {
+              author,
+              redactedAuthor,
+              strikeCount,
+            },
+            "[DUPLICATE_STRIKE_DM_SKIPPED]"
+          );
+
+        }
+
       } else {
+
         logger.warn(
           { author, redactedAuthor },
-          `[STAGE 11] Skipping DM warning: username is truly invalid or missing`
+          `[STAGE 11] Skipping DM warning: username invalid`
         );
+
       }
+
     } catch (err: any) {
-      logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 11] Warning DM failed: ${err?.message || String(err)}`);
-      logger.error({ err: err?.message, author }, "warning DM failure");
+
+      logger.error(
+        {
+          err: err?.message,
+          author,
+          redactedAuthor,
+        },
+        `[STAGE 11] Warning DM failed: ${err?.message || String(err)}`
+      );
+
+      logger.error(
+        { err: err?.message, author },
+        "warning DM failure"
+      );
+
     }
-  } else {
-    // 6. Strike 3+ → Modmail report to moderators (Stage 12)
+  }
+
+  /**
+   * =========================================
+   * 7. Strike 3+ → Send ModMail
+   * =========================================
+   */
+
+  else {
     try {
       if (isValidRedditUsername(author)) {
+
         await safeSendModmail(context.reddit, {
           subredditId: context.subredditId,
-          subject: `3-Strike Report: u/${author}`,
-          body: modMailBody(author, violation, permalink, strikeCount, kind),
+
+          subject:
+            `3-Strike Report: u/${author}`,
+
+          body: modMailBody(
+            author,
+            violation,
+            permalink,
+            strikeCount,
+            kind
+          ),
         });
-        await logEscalation(context.redis, `https://reddit.com${permalink}`, author);
-        logger.info({ author, redactedAuthor, strikeCount, action: "modmail" }, `[STAGE 12] Modmail sent successfully for user ${author}`);
-        logger.info({ author, strikeCount }, "modmail success");
+
+        await logEscalation(
+          context.redis,
+          `https://reddit.com${permalink}`,
+          author
+        );
+
+        logger.info(
+          {
+            author,
+            redactedAuthor,
+            strikeCount,
+            action: "modmail",
+          },
+          `[STAGE 12] Modmail sent successfully for user ${author}`
+        );
+
+        logger.info(
+          { author, strikeCount },
+          "modmail success"
+        );
+
       } else {
+
         logger.warn(
           { author, redactedAuthor },
-          `[STAGE 12] Skipping Modmail: username is truly invalid or missing`
+          `[STAGE 12] Skipping Modmail: username invalid`
         );
+
       }
+
     } catch (err: any) {
-      logger.error({ err: err?.message, author, redactedAuthor }, `[STAGE 12] Modmail failed: ${err?.message || String(err)}`);
-      logger.error({ err: err?.message, author }, "modmail failure");
+
+      logger.error(
+        {
+          err: err?.message,
+          author,
+          redactedAuthor,
+        },
+        `[STAGE 12] Modmail failed: ${err?.message || String(err)}`
+      );
+
+      logger.error(
+        { err: err?.message, author },
+        "modmail failure"
+      );
+
     }
   }
 }
 
 /**
- * Reports content without removing it.
+ * Report-only pipeline
  */
 export async function applyReportOnly(
   context: TriggerContext,
   payload: ContentPayload,
-  violation: { type: ViolationType; reason: string; confidence: number }
+  violation: {
+    type: ViolationType;
+    reason: string;
+    confidence: number;
+  }
 ): Promise<void> {
-  const reason = `[DesiMod AI] ${violation.type} (Conf: ${(violation.confidence * 100).toFixed(0)}%)`;
+
+  const reason =
+    `[DesiMod AI] ${violation.type} ` +
+    `(Conf: ${(violation.confidence * 100).toFixed(0)}%)`;
 
   try {
-    const thing = payload.kind === "comment"
-      ? await context.reddit.getCommentById(payload.id)
-      : await context.reddit.getPostById(payload.id);
 
-    await context.reddit.report(thing, { reason });
-    logger.info({ author: payload.author, type: violation.type, action: "report" }, "Content reported");
+    const thing =
+      payload.kind === "comment"
+        ? await context.reddit.getCommentById(payload.id)
+        : await context.reddit.getPostById(payload.id);
+
+    await context.reddit.report(thing, {
+      reason,
+    });
+
+    logger.info(
+      {
+        author: payload.author,
+        type: violation.type,
+        action: "report",
+      },
+      "Content reported"
+    );
+
   } catch (err: any) {
-    logger.warn({ err: err?.message }, "Report action failed");
+
+    logger.warn(
+      { err: err?.message },
+      "Report action failed"
+    );
+
   }
 }
-

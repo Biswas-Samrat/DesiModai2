@@ -9,12 +9,11 @@
  */
 import { TriggerContext } from "@devvit/public-api";
 import { analyzeContent } from "../ai/moderationAnalyzer.js";
-import { getDecision } from "./decisionEngine.js";
-import { applyRemovalWithStrike, applyReportOnly } from "./actions.js";
-import { isDuplicateAndStore } from "../storage/dedupeStore.js";
+import { applyRemovalWithStrike, applyWarningOnly } from "./actions.js";
 import type { ContentPayload } from "./types.js";
 import { logger } from "../utils/logger.js";
 import { cleanContent } from "../utils/textCleaner.js";
+import { REDIS_KEYS, REDIS_TTLS } from "../constants/redisKeys.js";
 
 export async function processModeration(
   context: TriggerContext,
@@ -22,16 +21,26 @@ export async function processModeration(
 ): Promise<void> {
   const { id, author, body, subreddit, permalink, kind } = payload;
 
+  // ENSURE NO DUPLICATE PROCESSING (EARLY ENOUGH BEFORE ANY SIDE EFFECTS)
+  const dedupeKey = REDIS_KEYS.moderationDedupe(id);
+  const isDupe = await context.redis.get(dedupeKey);
+  if (isDupe) {
+    logger.info({ id, author, subreddit, kind }, "[DUPLICATE_EVENT_ABORTED]");
+    return;
+  }
+  await context.redis.set(dedupeKey, "1", { expiration: new Date(Date.now() + REDIS_TTLS.moderationDedupeMs) });
+
   // [STAGE 2] Content received: Moderating comment/post by user TestUser
   logger.info(
-    { username: author, contentKind: kind, contentId: id, permalink },
-    `[STAGE 2] Content received: Moderating ${kind} by user ${author}`
+    { username: author, contentKind: kind, contentId: id, subreddit, permalink },
+    "[MODERATION_START]"
   );
 
   // 1. Get Gemini API key
   const apiKey = (await context.settings.get("gemini_api_key")) as string | undefined;
   if (!apiKey) {
     logger.warn({}, "gemini_api_key not set — skipping AI moderation");
+    logger.info({ id, author, subreddit, kind }, "[MODERATION_END]");
     return;
   }
 
@@ -58,56 +67,50 @@ export async function processModeration(
   const isLiveEmpty = !payload.liveBody || payload.liveBody.trim() === "";
   if (isOriginalEmpty && isLiveEmpty) {
     logger.info({ id }, "Both original body and live fetched body are empty — skipping moderation");
+    logger.info({ id, author, subreddit, kind }, "[MODERATION_END]");
     return;
   }
 
   // 4. Run AI classifier
-  let violations;
+  let analyzerOutput;
   try {
     logger.info({ id, author, len: textToAnalyze.length }, "Gemini request sent");
-    violations = await analyzeContent(textToAnalyze, apiKey, context.redis);
+    analyzerOutput = await analyzeContent(textToAnalyze, apiKey, context.redis, subreddit);
     logger.info({ id, author }, "Gemini response received");
   } catch (err: any) {
     logger.error({ err: err?.message, id, author }, "analyzeContent failed");
+    logger.info({ id, author, subreddit, kind }, "[MODERATION_END]");
     return;
   }
 
-  if (!violations || violations.length === 0) {
+  if (!analyzerOutput || analyzerOutput.decisionLevel === "SAFE") {
     logger.info({ id, author }, "Content classified as SAFE");
+    logger.info({ id, author, subreddit, kind }, "[MODERATION_END]");
     return;
   }
 
-  // 5. Direct Triage: Route any Gemini result with isToxic === true OR isScam === true to applyRemovalWithStrike()
-  const toxicOrScamViolation = violations.find(v => v.type === "toxicity" || v.type === "scam");
-  if (toxicOrScamViolation) {
-    logger.info(
-      { id, author, type: toxicOrScamViolation.type },
-      `[STAGE 6] Violation detected: ${toxicOrScamViolation.type}`
-    );
-    logger.info({ id, author }, "Routing to removal pipeline");
-    await applyRemovalWithStrike(context, payload, toxicOrScamViolation);
+  // 5. Execute Action based on Decision Level
+  const primaryViolation = analyzerOutput.violations[0] || {
+    type: "toxicity",
+    confidence: 1,
+    reason: "Fallback",
+    isImplicit: false
+  };
+
+  logger.info(
+    { id, author, decisionLevel: analyzerOutput.decisionLevel, severityScore: analyzerOutput.severityScore },
+    `[STAGE 6] Violation detected with level ${analyzerOutput.decisionLevel}`
+  );
+
+  if (analyzerOutput.decisionLevel === "LOW") {
+    logger.info({ id, author }, "Routing to warning-only pipeline (LOW severity)");
+    await applyWarningOnly(context, payload, primaryViolation);
+    logger.info({ id, author }, "Warning pipeline completed");
+  } else if (analyzerOutput.decisionLevel === "MEDIUM" || analyzerOutput.decisionLevel === "HIGH") {
+    logger.info({ id, author }, `Routing to removal pipeline (${analyzerOutput.decisionLevel} severity)`);
+    await applyRemovalWithStrike(context, payload, primaryViolation, analyzerOutput.decisionLevel);
     logger.info({ id, author }, "Removal pipeline completed");
-  } else {
-    // 6. Separate Detection from Actions: Map decisions first (fallback/legacy logic)
-    const actionsToTake = violations.map(v => ({
-      violation: v,
-      decision: getDecision(v.confidence, v.isImplicit)
-    }));
-
-    // Execute actions based on priority (removal > report)
-    const removalAction = actionsToTake.find(a => a.decision === "remove");
-    const reportAction = actionsToTake.find(a => a.decision === "report");
-
-    if (removalAction) {
-      logger.info({ id, author }, "Routing to removal pipeline (fallback)");
-      await applyRemovalWithStrike(context, payload, removalAction.violation);
-      logger.info({ id, author }, "Removal pipeline completed (fallback)");
-    } else if (reportAction) {
-      await applyReportOnly(context, payload, reportAction.violation);
-    } else {
-      logger.info({ id, author }, "No action required for detected violations (low confidence)");
-    }
   }
+
+  logger.info({ id, author, subreddit, kind }, "[MODERATION_END]");
 }
-
-
