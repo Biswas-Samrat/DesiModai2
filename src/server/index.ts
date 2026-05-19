@@ -3,6 +3,7 @@ import { createServer, getServerPort, context, reddit, redis, settings } from "@
 import type { MenuItemRequest, TriggerResponse, UiResponse } from "@devvit/web/shared";
 import { Hono } from "hono";
 import { getDashboardStats } from "../storage/analyticsStore.js";
+import { resolveDashboardChannel } from "../shared/dashboardRealtime.js";
 import type { AppContext } from "../types/devvit.js";
 import { handleCommentCreate } from "../triggers/onCommentCreate.js";
 import { handlePostCreate } from "../triggers/onPostCreate.js";
@@ -85,6 +86,11 @@ api.get("/dashboard", async (c) => {
     const username =
       context.username ?? (await reddit.getCurrentUsername()) ?? "unknown";
 
+    const refreshChannel = resolveDashboardChannel(
+      context.subredditId,
+      subredditName
+    );
+
     return c.json({
       isMod: true,
       username,
@@ -93,6 +99,7 @@ api.get("/dashboard", async (c) => {
       warnings: stats.warnings,
       escalations: stats.escalations,
       timeSaved: stats.estimatedTimeSavedMinutes,
+      refreshChannel: refreshChannel ?? undefined,
     });
   } catch (err) {
     console.error("Dashboard data fetch failed:", err);

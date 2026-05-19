@@ -27,6 +27,11 @@ import {
   logRemoval,
   logWarning,
 } from "../storage/analyticsStore.js";
+import {
+  appendViolationRecord,
+  getViolationHistory,
+} from "../storage/violationHistoryStore.js";
+import { buildModmailBody, buildModmailSubject } from "./modmailFormatter.js";
 import { broadcastDashboardRefresh } from "../server/dashboardRealtime.js";
 
 import { logger } from "../utils/logger.js";
@@ -35,6 +40,7 @@ import {
   safeAddModNote,
   safeSendPM,
   safeSendModmail,
+  resolveModmailSubredditId,
   redactUsername,
   isValidRedditUsername,
 } from "../utils/redditHelpers.js";
@@ -54,37 +60,6 @@ function dmWarningText(
   return (
     `Warning ${strikeNum}/3: Violation detected. Please follow r/${subreddit} rules.\n\n` +
     `If you believe this is an error, appeal via ModMail: https://reddit.com/message/compose?to=/r/${subreddit}`
-  );
-}
-
-/**
- * Creates ModMail body
- */
-function modMailBody(
-  username: string,
-  violation: {
-    type: ViolationType;
-    reason: string;
-    confidence: number;
-  },
-  permalink: string,
-  strikes: number,
-  kind: "post" | "comment"
-): string {
-  return (
-    `### ⚠️ 3-Strike Escalation: u/${username}\n\n` +
-    `The user u/${username} has reached **${strikes} strikes**. Manual review required.\n\n` +
-
-    `**AI Assessment:**\n` +
-    `- **Violation Type:** ${violation.type}\n` +
-    `- **Confidence:** ${(violation.confidence * 100).toFixed(0)}%\n` +
-    `- **Reason:** ${violation.reason}\n\n` +
-
-    `**Violation Details:**\n` +
-    `- **Content Type:** ${kind}\n` +
-    `- **Context Link:** https://reddit.com${permalink}\n\n` +
-
-    `*Note: No auto-ban has been issued. Please evaluate for potential suspension.*`
   );
 }
 
@@ -136,7 +111,7 @@ export async function applyWarningOnly(
       });
 
       await logWarning(context.redis);
-      await broadcastDashboardRefresh(context.subredditId);
+      await broadcastDashboardRefresh(context.subredditId, subreddit);
 
       logger.info(
         { author, redactedAuthor, action: "dm" },
@@ -247,7 +222,7 @@ export async function applyRemovalWithStrike(
     await context.reddit.remove(thing.id, false);
 
     await logRemoval(context.redis, violation.type);
-    await broadcastDashboardRefresh(context.subredditId);
+    await broadcastDashboardRefresh(context.subredditId, subreddit);
 
     logger.info(
       {
@@ -335,6 +310,26 @@ export async function applyRemovalWithStrike(
       { err: err?.message, author },
       "strike increment failure"
     );
+  }
+
+  if (strikeCount > 0) {
+    try {
+      await appendViolationRecord(context.redis, subreddit, author, {
+        strike: strikeCount,
+        type: violation.type,
+        reason: violation.reason,
+        confidence: violation.confidence,
+        kind,
+        permalink,
+        contentId: id,
+        at: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      logger.warn(
+        { err: err?.message, author, id },
+        "violation history append failed"
+      );
+    }
   }
 
   /**
@@ -450,7 +445,7 @@ export async function applyRemovalWithStrike(
           );
 
           await logWarning(context.redis);
-          await broadcastDashboardRefresh(context.subredditId);
+          await broadcastDashboardRefresh(context.subredditId, subreddit);
 
           logger.info(
             {
@@ -517,20 +512,36 @@ export async function applyRemovalWithStrike(
   else {
     try {
       if (isValidRedditUsername(author)) {
+        const modmailSubredditId = await resolveModmailSubredditId(
+          context.reddit,
+          {
+            subredditId: context.subredditId,
+            subredditName: subreddit,
+          }
+        );
+
+        const history = await getViolationHistory(
+          context.redis,
+          subreddit,
+          author
+        );
 
         await safeSendModmail(context.reddit, {
-          subredditId: context.subredditId ?? payload.subreddit,
-
-          subject:
-            `3-Strike Report: u/${author}`,
-
-          body: modMailBody(
-            author,
-            violation,
-            permalink,
+          subredditId: modmailSubredditId,
+          subject: buildModmailSubject(author, violation.type, strikeCount),
+          body: buildModmailBody({
+            username: author,
+            subreddit,
             strikeCount,
-            kind
-          ),
+            current: {
+              type: violation.type,
+              reason: violation.reason,
+              confidence: violation.confidence,
+              kind,
+              permalink,
+            },
+            history,
+          }),
         });
 
         await logEscalation(
@@ -538,7 +549,7 @@ export async function applyRemovalWithStrike(
           `https://reddit.com${permalink}`,
           author
         );
-        await broadcastDashboardRefresh(context.subredditId);
+        await broadcastDashboardRefresh(context.subredditId, subreddit);
 
         logger.info(
           {

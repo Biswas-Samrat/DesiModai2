@@ -18,6 +18,10 @@ export const REDIS_KEYS = {
   
   /** Key for storing strike counts per user */
   userStrikes: (username: string) => `user:${username}:strikes`,
+
+  /** Per-subreddit violation history for modmail (JSON array, metadata only) */
+  violationHistory: (subreddit: string, username: string) =>
+    `violations:${subreddit}:${username}`,
   
   /** Key for storing moderator dashboard post ID */
   dashboardPostId: (subredditName: string) => `dashboard_post_id:${subredditName}`,

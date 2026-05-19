@@ -15,5 +15,5 @@
     "jsx": "preserve"
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "src/client"]
 }

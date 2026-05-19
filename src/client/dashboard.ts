@@ -1,6 +1,6 @@
-import { connectRealtime, context } from "@devvit/web/client";
+import { connectRealtime, context, isRealtimeConnected } from "@devvit/web/client";
 import {
-  dashboardChannel,
+  resolveDashboardChannel,
   type DashboardRefreshMessage,
 } from "../shared/dashboardRealtime.js";
 
@@ -14,15 +14,27 @@ type DashboardData = {
   warnings?: number;
   escalations?: number;
   timeSaved?: number;
+  refreshChannel?: string;
 };
 
 const app = document.querySelector<HTMLDivElement>("#app");
 let selectedDays: DateRange = 1;
 let dashboardVisible = false;
-const POLL_INTERVAL_MS = 12_000;
+let refreshChannel: string | null = null;
+let pollTimer: number | undefined;
+
+const POLL_VISIBLE_MS = 3_000;
+const POLL_HIDDEN_MS = 20_000;
 
 function value(input: number | undefined): string {
   return String(input ?? 0);
+}
+
+function resolveClientChannel(data?: DashboardData): string | null {
+  if (data?.refreshChannel) {
+    return data.refreshChannel;
+  }
+  return resolveDashboardChannel(context.subredditId, context.subredditName);
 }
 
 function renderHidden(): void {
@@ -42,6 +54,13 @@ function renderError(): void {
   `;
 }
 
+function setLiveBadge(connected: boolean): void {
+  const live = app?.querySelector<HTMLElement>(".live");
+  if (!live) return;
+  live.textContent = connected ? "Live" : "Syncing";
+  live.classList.toggle("live-connected", connected);
+}
+
 function renderDashboard(data: DashboardData): void {
   if (!app) return;
 
@@ -52,7 +71,7 @@ function renderDashboard(data: DashboardData): void {
       <div class="brand-mark">M</div>
       <h1 class="title">DesiMod AI Insights</h1>
       <div class="user">Logged in as: u/${data.username ?? "unknown"}</div>
-      <div class="live" aria-live="polite">Live</div>
+      <div class="live" aria-live="polite">Syncing</div>
     </header>
 
     <section class="timeframe">
@@ -100,6 +119,8 @@ function renderDashboard(data: DashboardData): void {
       void loadDashboard();
     });
   });
+
+  setLiveBadge(refreshChannel ? isRealtimeConnected(refreshChannel) : false);
 }
 
 async function loadDashboard(options?: { silent?: boolean }): Promise<void> {
@@ -120,8 +141,15 @@ async function loadDashboard(options?: { silent?: boolean }): Promise<void> {
       return;
     }
 
+    const nextChannel = resolveClientChannel(data);
+    if (nextChannel && nextChannel !== refreshChannel) {
+      refreshChannel = nextChannel;
+      ensureRealtimeSubscription();
+    }
+
     if (options?.silent && dashboardVisible) {
       updateDashboardValues(data);
+      setLiveBadge(refreshChannel ? isRealtimeConnected(refreshChannel) : false);
       return;
     }
 
@@ -149,23 +177,54 @@ function updateDashboardValues(data: DashboardData): void {
   if (timeSaved) timeSaved.textContent = `~${value(data.timeSaved)} minutes`;
 }
 
-function startLiveUpdates(): void {
-  if (context.subredditId) {
-    connectRealtime<DashboardRefreshMessage>({
-      channel: dashboardChannel(context.subredditId),
-      onMessage(msg: DashboardRefreshMessage) {
-        if (msg.type === "refresh") {
-          void loadDashboard({ silent: true });
-        }
-      },
-    });
+function ensureRealtimeSubscription(): void {
+  if (!refreshChannel) return;
+
+  connectRealtime<DashboardRefreshMessage>({
+    channel: refreshChannel,
+    onConnect() {
+      setLiveBadge(true);
+    },
+    onDisconnect() {
+      setLiveBadge(false);
+    },
+    onMessage(msg: DashboardRefreshMessage) {
+      if (msg.type === "refresh") {
+        void loadDashboard({ silent: true });
+      }
+    },
+  });
+}
+
+function schedulePolling(): void {
+  if (pollTimer !== undefined) {
+    window.clearInterval(pollTimer);
   }
 
-  window.setInterval(() => {
+  const interval =
+    document.visibilityState === "visible" ? POLL_VISIBLE_MS : POLL_HIDDEN_MS;
+
+  pollTimer = window.setInterval(() => {
     if (dashboardVisible) {
       void loadDashboard({ silent: true });
     }
-  }, POLL_INTERVAL_MS);
+  }, interval);
+}
+
+function startLiveUpdates(): void {
+  refreshChannel = resolveClientChannel();
+  if (refreshChannel) {
+    ensureRealtimeSubscription();
+  }
+
+  schedulePolling();
+
+  document.addEventListener("visibilitychange", () => {
+    schedulePolling();
+    if (document.visibilityState === "visible" && dashboardVisible) {
+      void loadDashboard({ silent: true });
+    }
+  });
 }
 
 void loadDashboard();

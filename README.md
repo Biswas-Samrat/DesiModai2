@@ -25,56 +25,53 @@ It helps moderators automatically handle harmful content while maintaining trans
 ### ⚡ Automated 3-Strike System
 
 * **Strike 1–2**
-
   * Post/comment removal
   * Warning DM sent to user
   * ModNote logged
+  * Violation recorded in Redis history (type, reason, link, timestamp)
 * **Strike 3**
-
   * Post/comment removal
-  * ModMail escalation sent to moderators for manual review
+  * **Detailed ModMail** sent to moderators for manual review
   * No auto-ban (fully Reddit policy compliant)
 
 ### 📊 Moderator Dashboard
 
-* Accessible directly from the subreddit interface
-* Located under the **“…” menu next to Mod Tools**
-* Mods can click:
-
-  * **Open DesiMod Dashboard**
-* Opens a real-time moderation analytics dashboard
-
-Dashboard includes:
-
-* Recent AI moderation actions
-* Scam/toxicity detection logs
-* User strike tracking
-* Escalation cases
-* System performance stats
+* Accessible from the subreddit **mod menu** → **Open DesiMod Dashboard**
+* Built with **Devvit Web** (webview custom post — not deprecated Blocks)
+* **Near real-time updates** via Devvit Realtime + lightweight polling (no socket.io)
+* Stats: toxic removals, scam flags, warnings, modmail escalations, estimated time saved
 
 ### 🔐 Moderator-Only Access
 
-* Dashboard is visible only to subreddit moderators
-* Uses server-side permission checks (`getModerators`, `getCurrentUser`)
-* Prevents unauthorized access to moderation data
+* Dashboard visible only to subreddit moderators
+* Server-side checks (`getModerators`, `getCurrentUser`)
+* Dashboard post is mod-removed from the public feed when possible
 
-### 📩 Automated Escalation System
+### 📩 Automated Escalation System (Strike 3 ModMail)
 
-* Generates structured ModMail reports at Strike 3
-* Includes:
+When a user reaches **3 strikes**, moderators receive a structured ModMail that includes:
 
-  * Violation type
-  * AI reasoning
-  * Confidence score
-  * Direct content permalink
+| Section | What mods see |
+| --- | --- |
+| **User summary** | Username, subreddit, total strike count |
+| **Current violation** | Type (toxicity vs scam), post/comment, AI reason, confidence %, permalink |
+| **Violation history** | Table of **all recorded strikes** with type, content kind, confidence, UTC time, and links |
+| **Summary counts** | How many toxicity vs scam events appear in history |
+
+Example subject line:
+
+`3-Strike: u/username — Scam / spam (3 strikes)`
+
+> **Note:** Violation history is stored from the time this feature is deployed. Earlier strikes before an upgrade may not appear in the history table until new violations are logged.
 
 ---
 
 ## Tech Stack
 
-* **Devvit SDK** – Native Reddit app integration
+* **Devvit Web** – Custom post webview + server triggers (Reddit-approved path; not Blocks)
 * **Google Gemini 3.1 Flash Lite** – AI moderation engine
-* **Redis** – Strike tracking, caching, and analytics storage
+* **Redis** – Strikes, violation history, analytics, dedupe locks
+* **Devvit Realtime** – Push dashboard refresh when stats change
 * **TypeScript** – Type-safe backend architecture
 
 ---
@@ -94,14 +91,17 @@ DesiMod AI follows a balanced moderation approach:
 
 * Moderator-only dashboard access enforcement
 * No auto-bans — only escalation-based moderation
-* Minimal data storage (only moderation metadata)
+* Minimal data storage (moderation metadata only: violation type, reason, links, timestamps — no full post bodies in history)
+* **Devvit Web** architecture (compatible with Reddit app review after Blocks deprecation)
 * Designed to comply with Reddit Devvit safety guidelines
 
 ---
 
+
+
 ## Project Goal
 
-To provide a **smart, multilingual AI moderation system** that helps Reddit communities in India, Bangladesh, and other multilingual regions manage spam, scams, and toxic behavior efficiently.
+To provide a **smart, multilingual AI moderation system** that helps Reddit communities in India, Bangladesh, and other multilingual regions manage spam, scams, and toxic behavior efficiently — with **clear context for moderators** when escalation is required.
 
 ---
 

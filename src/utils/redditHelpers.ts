@@ -105,6 +105,21 @@ export async function safeSendPM(
 }
 
 /**
+ * Resolves a t5_ subreddit id for modmail (API rejects subreddit names).
+ */
+export async function resolveModmailSubredditId(
+  reddit: RedditAPIClient,
+  opts: { subredditId?: string; subredditName: string }
+): Promise<string> {
+  if (opts.subredditId?.startsWith("t5_")) {
+    return opts.subredditId;
+  }
+
+  const info = await reddit.getSubredditInfoByName(opts.subredditName);
+  return info.id;
+}
+
+/**
  * Safely sends a modmail via createModInboxConversation.
  */
 export async function safeSendModmail(

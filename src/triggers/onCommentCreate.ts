@@ -9,6 +9,7 @@
  */
 import type { AppContext } from "../types/devvit.js";
 import { processModeration } from "../moderation/moderationService.js";
+import { enrichContextFromTrigger } from "../utils/triggerContext.js";
 
 import { logger } from "../utils/logger.js";
 
@@ -46,7 +47,7 @@ export async function handleCommentCreate(
     const subredditName = event.subreddit?.name ?? "DesiModTest_Samrat";
     const permalink = (liveComment?.permalink || comment.permalink) || `/r/${subredditName}/comments/${event.post?.id ?? ""}/_/${comment.id}/`;
 
-    await processModeration(context, {
+    await processModeration(enrichContextFromTrigger(context, event), {
       id: comment.id,
       author: realAuthorName,
       subreddit: subredditName,

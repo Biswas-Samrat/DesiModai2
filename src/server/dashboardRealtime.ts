@@ -1,21 +1,22 @@
 import { realtime } from "@devvit/web/server";
 import {
-  dashboardChannel,
+  resolveDashboardChannel,
   type DashboardRefreshMessage,
 } from "../shared/dashboardRealtime.js";
 
-export { dashboardChannel, type DashboardRefreshMessage };
+export type { DashboardRefreshMessage };
+export { dashboardChannel, resolveDashboardChannel } from "../shared/dashboardRealtime.js";
 
-/** Notify open dashboards that Redis stats changed (Devvit realtime, not WebSockets). */
+/** Notify open dashboards that Redis stats changed (Devvit realtime, not socket.io). */
 export async function broadcastDashboardRefresh(
-  subredditId: string | undefined
+  subredditId?: string,
+  subredditName?: string
 ): Promise<void> {
-  if (!subredditId) return;
+  const channel = resolveDashboardChannel(subredditId, subredditName);
+  if (!channel) return;
 
   try {
-    await realtime.send<DashboardRefreshMessage>(dashboardChannel(subredditId), {
-      type: "refresh",
-    });
+    await realtime.send<DashboardRefreshMessage>(channel, { type: "refresh" });
   } catch (err) {
     console.error("Dashboard realtime broadcast failed:", err);
   }
