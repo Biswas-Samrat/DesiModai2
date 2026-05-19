@@ -38,27 +38,56 @@ async function getCurrentSubredditName(): Promise<string> {
   }
 }
 
+async function isCurrentUserMod(subredditName: string): Promise<boolean> {
+  const mods = await reddit.getModerators({ subredditName }).all();
+
+  if (context.userId) {
+    if (mods.some((mod) => mod.id === context.userId)) {
+      return true;
+    }
+  }
+
+  const username =
+    context.username ?? (await reddit.getCurrentUsername());
+  if (username) {
+    const normalized = username.toLowerCase();
+    if (
+      mods.some(
+        (mod) => mod.username?.toLowerCase() === normalized
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 api.get("/dashboard", async (c) => {
   const rawDays = Number(c.req.query("days") ?? "1");
   const days = rawDays === 3 || rawDays === 7 ? rawDays : 1;
-  const subredditName = await getCurrentSubredditName();
+  const subredditName =
+    context.subredditName ?? (await getCurrentSubredditName());
 
   try {
-    const [username, mods, stats] = await Promise.all([
-      reddit.getCurrentUsername(),
-      reddit.getModerators({ subredditName }).all(),
+    const [isMod, stats] = await Promise.all([
+      isCurrentUserMod(subredditName),
       getDashboardStats(redis, days),
     ]);
 
-    const isMod = mods.some((mod: { username?: string }) => mod.username === username);
     if (!isMod) {
-      console.log(`[INFO] dashboard hidden from non-mods: ${context.postId ?? "unknown"}`);
+      console.log(
+        `[INFO] dashboard hidden from non-mods: ${context.postId ?? "unknown"}`
+      );
       return c.json({ isMod: false });
     }
 
+    const username =
+      context.username ?? (await reddit.getCurrentUsername()) ?? "unknown";
+
     return c.json({
       isMod: true,
-      username: username ?? "unknown",
+      username,
       toxicRemovals: stats.toxicRemovals,
       scamRemovals: stats.scamRemovals,
       warnings: stats.warnings,

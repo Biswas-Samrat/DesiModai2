@@ -27,6 +27,7 @@ import {
   logRemoval,
   logWarning,
 } from "../storage/analyticsStore.js";
+import { broadcastDashboardRefresh } from "../server/dashboardRealtime.js";
 
 import { logger } from "../utils/logger.js";
 
@@ -135,6 +136,7 @@ export async function applyWarningOnly(
       });
 
       await logWarning(context.redis);
+      await broadcastDashboardRefresh(context.subredditId);
 
       logger.info(
         { author, redactedAuthor, action: "dm" },
@@ -245,6 +247,7 @@ export async function applyRemovalWithStrike(
     await context.reddit.remove(thing.id, false);
 
     await logRemoval(context.redis, violation.type);
+    await broadcastDashboardRefresh(context.subredditId);
 
     logger.info(
       {
@@ -447,6 +450,7 @@ export async function applyRemovalWithStrike(
           );
 
           await logWarning(context.redis);
+          await broadcastDashboardRefresh(context.subredditId);
 
           logger.info(
             {
@@ -534,6 +538,7 @@ export async function applyRemovalWithStrike(
           `https://reddit.com${permalink}`,
           author
         );
+        await broadcastDashboardRefresh(context.subredditId);
 
         logger.info(
           {

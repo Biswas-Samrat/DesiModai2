@@ -1,3 +1,9 @@
+import { connectRealtime, context } from "@devvit/web/client";
+import {
+  dashboardChannel,
+  type DashboardRefreshMessage,
+} from "../shared/dashboardRealtime.js";
+
 type DateRange = 1 | 3 | 7;
 
 type DashboardData = {
@@ -12,6 +18,8 @@ type DashboardData = {
 
 const app = document.querySelector<HTMLDivElement>("#app");
 let selectedDays: DateRange = 1;
+let dashboardVisible = false;
+const POLL_INTERVAL_MS = 12_000;
 
 function value(input: number | undefined): string {
   return String(input ?? 0);
@@ -19,11 +27,13 @@ function value(input: number | undefined): string {
 
 function renderHidden(): void {
   if (!app) return;
+  dashboardVisible = false;
   app.innerHTML = `<section class="empty"></section>`;
 }
 
 function renderError(): void {
   if (!app) return;
+  dashboardVisible = false;
   app.innerHTML = `
     <section class="loading">
       <h1>Dashboard unavailable</h1>
@@ -35,11 +45,14 @@ function renderError(): void {
 function renderDashboard(data: DashboardData): void {
   if (!app) return;
 
+  dashboardVisible = true;
+
   app.innerHTML = `
     <header class="header">
       <div class="brand-mark">M</div>
       <h1 class="title">DesiMod AI Insights</h1>
       <div class="user">Logged in as: u/${data.username ?? "unknown"}</div>
+      <div class="live" aria-live="polite">Live</div>
     </header>
 
     <section class="timeframe">
@@ -89,24 +102,71 @@ function renderDashboard(data: DashboardData): void {
   });
 }
 
-async function loadDashboard(): Promise<void> {
+async function loadDashboard(options?: { silent?: boolean }): Promise<void> {
   try {
     const response = await fetch(`/api/dashboard?days=${selectedDays}`);
     if (!response.ok) {
-      renderError();
+      if (!options?.silent) {
+        renderError();
+      }
       return;
     }
 
     const data = (await response.json()) as DashboardData;
     if (!data.isMod) {
-      renderHidden();
+      if (!options?.silent) {
+        renderHidden();
+      }
+      return;
+    }
+
+    if (options?.silent && dashboardVisible) {
+      updateDashboardValues(data);
       return;
     }
 
     renderDashboard(data);
   } catch {
-    renderError();
+    if (!options?.silent) {
+      renderError();
+    }
   }
 }
 
+function updateDashboardValues(data: DashboardData): void {
+  if (!app) return;
+
+  const toxic = app.querySelector(".value.toxic");
+  const scam = app.querySelector(".value.scam");
+  const warnings = app.querySelector(".value.warnings");
+  const escalations = app.querySelector(".value.escalations");
+  const timeSaved = app.querySelector(".time-value");
+
+  if (toxic) toxic.textContent = value(data.toxicRemovals);
+  if (scam) scam.textContent = value(data.scamRemovals);
+  if (warnings) warnings.textContent = value(data.warnings);
+  if (escalations) escalations.textContent = value(data.escalations);
+  if (timeSaved) timeSaved.textContent = `~${value(data.timeSaved)} minutes`;
+}
+
+function startLiveUpdates(): void {
+  if (context.subredditId) {
+    connectRealtime<DashboardRefreshMessage>({
+      channel: dashboardChannel(context.subredditId),
+      onMessage(msg: DashboardRefreshMessage) {
+        if (msg.type === "refresh") {
+          void loadDashboard({ silent: true });
+        }
+      },
+    });
+  }
+
+  window.setInterval(() => {
+    if (dashboardVisible) {
+      void loadDashboard({ silent: true });
+    }
+  }, POLL_INTERVAL_MS);
+}
+
 void loadDashboard();
+startLiveUpdates();

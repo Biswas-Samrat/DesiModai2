@@ -98,6 +98,18 @@ button {
   white-space: nowrap;
 }
 
+.live {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 212, 189, 0.15);
+  color: #00d4bd;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .timeframe {
   justify-content: center;
   gap: 14px;
