@@ -1,7 +1,7 @@
 /**
  * moderationAnalyzer.ts — runs single unified classifier against content.
  */
-import type { RedisClient } from "@devvit/public-api";
+import type { RedisClient } from "../types/devvit.js";
 import { askGemini } from "./geminiClient.js";
 import { buildCombinedPrompt } from "../prompts/combinedModerationPrompt.js";
 import type { ViolationResult } from "../moderation/types.js";

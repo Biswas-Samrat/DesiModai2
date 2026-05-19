@@ -14,7 +14,7 @@
  * - NO auto-ban (Reddit policy safe)
  */
 
-import type { TriggerContext } from "@devvit/public-api";
+import type { AppContext } from "../types/devvit.js";
 import type { ContentPayload, ViolationType } from "./types.js";
 
 import {
@@ -107,7 +107,7 @@ function getShortReason(type: ViolationType): string {
  * Warning-only action
  */
 export async function applyWarningOnly(
-  context: TriggerContext,
+  context: AppContext,
   payload: ContentPayload,
   violation: {
     type: ViolationType;
@@ -153,7 +153,7 @@ export async function applyWarningOnly(
  * Main moderation removal pipeline
  */
 export async function applyRemovalWithStrike(
-  context: TriggerContext,
+  context: AppContext,
   payload: ContentPayload,
   violation: {
     type: ViolationType;
@@ -239,8 +239,8 @@ export async function applyRemovalWithStrike(
 
     const thing =
       kind === "comment"
-        ? await context.reddit.getCommentById(id)
-        : await context.reddit.getPostById(id);
+        ? await context.reddit.getCommentById(id as `t1_${string}`)
+        : await context.reddit.getPostById(id as `t3_${string}`);
 
     await context.reddit.remove(thing.id, false);
 
@@ -515,7 +515,7 @@ export async function applyRemovalWithStrike(
       if (isValidRedditUsername(author)) {
 
         await safeSendModmail(context.reddit, {
-          subredditId: context.subredditId,
+          subredditId: context.subredditId ?? payload.subreddit,
 
           subject:
             `3-Strike Report: u/${author}`,
@@ -583,7 +583,7 @@ export async function applyRemovalWithStrike(
  * Report-only pipeline
  */
 export async function applyReportOnly(
-  context: TriggerContext,
+  context: AppContext,
   payload: ContentPayload,
   violation: {
     type: ViolationType;
@@ -600,8 +600,8 @@ export async function applyReportOnly(
 
     const thing =
       payload.kind === "comment"
-        ? await context.reddit.getCommentById(payload.id)
-        : await context.reddit.getPostById(payload.id);
+        ? await context.reddit.getCommentById(payload.id as `t1_${string}`)
+        : await context.reddit.getPostById(payload.id as `t3_${string}`);
 
     await context.reddit.report(thing, {
       reason,

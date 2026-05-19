@@ -1,0 +1,62 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "desimodtestai",
+  "post": {
+    "dir": "dist/client",
+    "entrypoints": {
+      "default": {
+        "entry": "index.html",
+        "height": "tall",
+        "inline": true
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "permissions": {
+    "http": {
+      "enable": true,
+      "domains": [
+        "generativelanguage.googleapis.com"
+      ]
+    },
+    "redis": true,
+    "reddit": {
+      "enable": true,
+      "scope": "moderator"
+    }
+  },
+  "settings": {
+    "global": {
+      "gemini_api_key": {
+        "type": "string",
+        "label": "Gemini API Key",
+        "isSecret": true
+      }
+    }
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Open DesiMod Dashboard",
+        "description": "Open the DesiMod AI moderation analytics dashboard.",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/open-dashboard"
+      }
+    ]
+  },
+  "triggers": {
+    "onCommentSubmit": "/internal/triggers/comment-submit",
+    "onPostSubmit": "/internal/triggers/post-submit"
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build"
+  },
+  "dev": {
+    "subreddit": "desimodtestai_dev"
+  }
+}

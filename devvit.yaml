@@ -1,9 +1,0 @@
-name: desimod-ai
-version: 1.0.0
-entrypoint: src/main.tsx
-permissions:
-  - redditAPI
-  - redis
-  - http
-httpConnectors:
-  - url: https://generativelanguage.googleapis.com

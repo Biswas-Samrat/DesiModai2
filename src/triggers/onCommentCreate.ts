@@ -1,21 +1,20 @@
 /**
  * onCommentCreate.ts — trigger handler for new comments.
  *
- * Devvit calls this as: handler(event: protos.CommentSubmit, context: TriggerContext)
+ * Devvit calls this as a comment submit trigger endpoint.
  * Field reference:
  *   event.comment.id, event.comment.body, event.comment.author, event.comment.permalink
  *   event.subreddit.name
  *   event.author.name (the UserV2 object, may differ from comment.author string)
  */
-import type { TriggerContext } from "@devvit/public-api";
-import type { CommentSubmit } from "@devvit/protos";
+import type { AppContext } from "../types/devvit.js";
 import { processModeration } from "../moderation/moderationService.js";
 
 import { logger } from "../utils/logger.js";
 
 export async function handleCommentCreate(
-  event: CommentSubmit,
-  context: TriggerContext
+  event: any,
+  context: AppContext
 ): Promise<void> {
   try {
     const comment = event.comment;

@@ -7,7 +7,7 @@
  *                               → actions (remove / report / ignore)
  *                               → storage (strikes, analytics)
  */
-import { TriggerContext } from "@devvit/public-api";
+import type { AppContext } from "../types/devvit.js";
 import { analyzeContent } from "../ai/moderationAnalyzer.js";
 import { applyRemovalWithStrike, applyWarningOnly } from "./actions.js";
 import type { ContentPayload } from "./types.js";
@@ -16,7 +16,7 @@ import { cleanContent } from "../utils/textCleaner.js";
 import { REDIS_KEYS, REDIS_TTLS } from "../constants/redisKeys.js";
 
 export async function processModeration(
-  context: TriggerContext,
+  context: AppContext,
   payload: ContentPayload
 ): Promise<void> {
   const { id, author, body, subreddit, permalink, kind } = payload;

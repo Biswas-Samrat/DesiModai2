@@ -1,4 +1,4 @@
-import { RedditAPIClient } from "@devvit/public-api";
+type RedditAPIClient = any;
 
 /**
  * Validates a Reddit username to avoid USER_DOESNT_EXIST errors,

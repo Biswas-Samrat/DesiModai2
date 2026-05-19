@@ -7,7 +7,7 @@ import {
   aiModerationSchema,
   type AiModerationResponse,
 } from "./schemas.js";
-import type { RedisClient } from "@devvit/public-api";
+import type { RedisClient } from "../types/devvit.js";
 import { REDIS_KEYS, REDIS_TTLS } from "../constants/redisKeys.js";
 
 // Updated Gemini model
