@@ -1,8 +1,8 @@
-# DesiMod AI
+# DesiMode AI
 
 **Advanced AI Moderation System for Reddit Communities**
 
-DesiMod AI is a production-grade Reddit moderation tool built for South Asian communities. It is designed to detect toxicity, scams, and spam in multilingual and mixed-language content including English, Bangla, Hindi, and Romanized variations (Hinglish/Banglish).
+DesiMode AI is a production-grade Reddit moderation tool built for South Asian communities. It is designed to detect toxicity, scams, and spam in multilingual and mixed-language content including English, Bangla, Hindi, and Romanized variations (Hinglish/Banglish).
 
 It helps moderators automatically handle harmful content while maintaining transparency, control, and escalation workflows.
 
@@ -78,7 +78,7 @@ Example subject line:
 
 ## Moderation Philosophy
 
-DesiMod AI follows a balanced moderation approach:
+DesiMode AI follows a balanced moderation approach:
 
 * ⚖️ Reduce moderator workload through automation
 * 🧑‍⚖️ Keep humans in control for final escalation
