@@ -36,7 +36,7 @@ It helps moderators automatically handle harmful content while maintaining trans
 
 ### 📊 Moderator Dashboard
 
-* Accessible from the subreddit **mod menu** → **Open DesiMod Dashboard**
+* Accessible from the subreddit **mod menu( ... )** (Next to **Mod Tools** button)  → **Open DesiMod Dashboard**
 * Built with **Devvit Web** (webview custom post — not deprecated Blocks)
 * **Near real-time updates** via Devvit Realtime + lightweight polling (no socket.io)
 * Stats: toxic removals, scam flags, warnings, modmail escalations, estimated time saved
@@ -73,6 +73,127 @@ Example subject line:
 * **Redis** – Strikes, violation history, analytics, dedupe locks
 * **Devvit Realtime** – Push dashboard refresh when stats change
 * **TypeScript** – Type-safe backend architecture
+
+---
+
+## Project Setup
+
+Follow these steps to set up and test DesiMode AI on your local machine.
+
+### Prerequisites
+
+Install the following before starting:
+
+- Node.js
+- npm
+- Devvit CLI
+
+Install Devvit CLI globally:
+
+```bash
+npm install -g devvit
+```
+
+---
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Biswas-Samrat/DesiModai2.git
+cd DesiModai2
+```
+
+---
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+---
+
+### 3. Login to Devvit
+
+```bash
+devvit login
+```
+
+This will open Reddit authentication for your account.
+
+---
+
+### 4. Upload the Devvit App
+
+Upload the project to Reddit Devvit and provide a unique app name when prompted.
+
+```bash
+devvit upload
+```
+
+---
+
+### 5. Install the App in Your Subreddit
+
+Open the following URL after uploading:
+
+```text
+https://developers.reddit.com/apps/<app-name>
+```
+
+Replace `<app-name>` with your uploaded Devvit app name.
+
+Then click:
+
+```text
+Add to Community
+```
+
+Select the subreddit where you want to test the app.
+
+---
+
+### 6. Configure Gemini API Key
+
+Set your Gemini API key using Devvit settings:
+
+```bash
+npx devvit settings set gemini_api_key
+```
+
+You will be prompted to enter your Gemini API key.
+
+---
+
+### 7. Start Playtest Mode
+
+Run the following command to start the Devvit playtest environment and see live logs:
+
+```bash
+npx devvit playtest r/<subreddit-name>
+```
+
+Example:
+
+```bash
+npx devvit playtest r/testsubreddit
+```
+
+---
+
+## Testing the Application
+
+Once playtest mode is running:
+
+1. Create posts or comments in the test subreddit
+2. Try toxic, spam, scam, or multilingual content
+3. Observe:
+   - Automatic removals
+   - Warning messages
+   - Strike tracking
+   - ModMail escalation at strike 3
+   - Real-time dashboard updates
+   - Terminal moderation logs
 
 ---
 
