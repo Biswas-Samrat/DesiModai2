@@ -1,6 +1,6 @@
 {
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
-  "name": "desimod-ai-v1",
+  "name": "desimode-ai",
   "post": {
     "dir": "dist/client",
     "entrypoints": {
@@ -57,6 +57,6 @@
     "build": "vite build"
   },
   "dev": {
-    "subreddit": "desimodtestai_dev"
+    "subreddit": "desimode_ai_dev"
   }
 }
